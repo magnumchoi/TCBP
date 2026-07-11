@@ -1,0 +1,17 @@
+# tcbp — Total Commander Batch Python
+# 외부 패키지 의존성 없음. 표준 라이브러리만 사용.
+#
+# 최소 요구 버전: Python 3.11+
+#   tomllib           — Python 3.11 내장 (3.10 이하: pip install tomli)
+#   ctypes, threading — Windows 내장
+#
+# ── 선택 패키지 ────────────────────────────────────────────────────────────────
+#
+# keyboard
+#   pause = true 설정 시 "아무 키나 누르면 종료" 기능에 사용됩니다.
+#   미설치 시 Enter 키 대기(input())로 자동 대체되므로 필수는 아닙니다.
+#   pip install keyboard
+#
+# ── Python 3.10 이하 환경 ──────────────────────────────────────────────────────
+#
+# tomli==2.2.1

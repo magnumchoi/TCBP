@@ -1,0 +1,370 @@
+# ==============================================================================
+# tcbp — config.toml
+# Total Commander Batch Python 작업 정의 파일
+# ==============================================================================
+
+[global]
+on_error    = "continue"   # "continue" | "stop"
+parallel    = false
+max_workers = 4
+output      = "{dir}/{base}{ext}"
+log         = false
+log_file    = "tcbp.log"
+pause       = true        # 완료 후 Enter 키 대기 여부
+
+[global.tools]
+magick   = "C:/_FIX/Graphic/Conv_ImageMagick/magick.exe"
+gm       = "C:/_FIX/Graphic/Conv_GraphicsMagick/gm.exe"
+pngcrush = "C:/_FIX/Graphic/Conv_PNGcrush/pngcrush.exe"
+oxipng   = "c:/_FIX/Graphic/Conv_OxiPNG/oxipng.exe"
+flac     = "C:/_FIX/Media_Audio/Conv_FLAC/Win64/flac.exe"
+flaccl   = "c:/_FIX/Media_Audio/Conv_FLACCL/CUETools.FLACCL.cmd.exe"
+hmp3     = "C:/_FIX/Media_Audio/Conv_HelixMP3/hmp3.exe"
+
+# ==============================================================================
+#  IMAGE FORMAT CONVERSION
+# ==============================================================================
+[jobs.Conv2PNG]
+desc        = "Convert images to PNG format"
+tool        = "gm"
+output      = "{dir}/{base}.png"
+parallel    = true
+max_workers = 8
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Convert images PNG format (PARALLEL mode, {max_workers} workers)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} convert -quality 95 {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.Conv2JPG]
+desc        = "Convert images to JPG format"
+tool        = "gm"
+output      = "{dir}/{base}.jpg"
+parallel    = true
+max_workers = 8
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Convert images JPG format (PARALLEL mode, {max_workers} workers)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} convert -quality 95 {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.Conv2BMP]
+desc        = "Convert images to BMP format"
+tool        = "gm"
+output      = "{dir}/{base}.bmp"
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Convert images BMP format" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} convert {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ==============================================================================
+#  PNG Format Optimization
+# ==============================================================================
+[jobs.oxipng]
+desc        = "Optimize PNG format (oxipng)"
+tool        = "oxipng"
+output      = "{dir}/{base}_optimized{ext}"
+parallel    = true
+max_workers = 8
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Optimize PNG files (oxipng, PARALLEL mode, {max_workers} workers)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+     "{tool} -o 5 -t 1 {input} --out {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Optimzation Finished" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+[jobs.pngcrush]
+desc        = "Optimize PNG format (pngcrush)"
+tool        = "pngcrush"
+output      = "{dir}/{base}_crushed{ext}"
+parallel    = true
+max_workers = 8
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Optimize PNG files (pngcrush, PARALLEL mode, {max_workers} workers)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+     "{tool} -m 113 -m 121 -m 124 {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Optimzation Finished" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ==============================================================================
+#  IMAGE PROCESSING (1)
+# ==============================================================================
+
+[jobs.ResizeImages]
+desc     = "Resize images (keep aspect ratio, only to smaller size)"
+tool     = "gm"
+output   = "{dir}/{base}{ext}"
+params = [
+    { key="size",   desc="size (pixels)",  type="int" },
+]
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Resize images (keep aspect ratio, only to smaller size)" },
+    { msg = "   Side Length (longer width or height) : {size} pixels" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} convert -resize {size}x{size}> -filter Lanczos -unsharp 5 -quality 100 {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Process finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.CropImages]
+desc        = "Crop images"
+tool        = "gm"
+output      = "{dir}/{base}.bmp"
+params = [
+    { key="x",      desc="X offset (pixels)",  type="int" },
+    { key="y",      desc="Y offset (pixels)",  type="int" },
+    { key="width",  desc="Width  (pixels)",    type="int" },
+    { key="height", desc="Height (pixels)",    type="int" },
+]
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Crop images" },
+    { msg = "   x-offset : {x} pixels" },
+    { msg = "   y-offset : {y} pixels" },
+    { msg = "   Width    : {width} pixels" },
+    { msg = "   Height   : {height} pixels" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} convert -crop {width}x{height}+{x}+{y} -quality 100 {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Process finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.RemoveEdges]
+desc     = "Trim images from top/bottom/left/right sides"
+tool     = "gm"
+output   = "{dir}/{base}.bmp"
+params = [
+    { key="top",    desc="Top    (pixels)", type="int" },
+    { key="bottom", desc="Bottom (pixels)", type="int" },
+    { key="left",   desc="Left   (pixels)", type="int" },
+    { key="right",  desc="Right  (pixels)", type="int" },
+]
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Trim images from edges" },
+    { msg = "   (Top,Bottom,Left,Right) =  ({top},{bottom},{left},{right}) pixels" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} convert -crop +{left}+{top} -crop -{right}-{bottom} -quality 100 {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Process finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ==============================================================================
+#  IMAGE PROCESSING (2)
+# ==============================================================================
+
+[jobs.Conv2True]
+desc        = "Convert images to true color (BMP format)"
+tool        = "gm"
+output      = "{dir}/{base}.bmp"
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Convert images to true color (BMP format)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} convert -depth 24 -colorspace RGB {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.Conv2Gray]
+desc        = "Convert images to grayscale (PNG format)"
+tool        = "gm"
+output      = "{dir}/{base}.png"
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Convert images to gray scale (PNG format)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} convert -colorspace GRAY -quality 95 {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.InvertOpacity]
+desc        = "Invert opacity channel (BMP format)"
+tool        = "gm"
+output      = "{dir}/{base}.bmp"
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Invert Opacity Channel (BMP format)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} convert -operator Opacity Negate 100 {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.AddWatermark]
+desc        = "Add watermark to images (southeast gravity)"
+tool        = "gm"
+output      = "{dir}/{base}_watermark.jpg"
+# user-defined parameter
+watermark   = "c:/_FIX/Graphic/Conv_ImageMagick/images/fuzzy-magick.png"
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Add watermark to images" },
+    { msg = "   Watermark : {watermark}" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} composite -gravity southeast -quality 100 \"{watermark}\" {input} {output}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Process finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ==============================================================================
+#  AUDIO FORMAT CONVERSION
+# ==============================================================================
+
+[jobs.Helix_MP3]
+desc         = "MP3 conversion using Helix MP3 encoder"
+tool         = "hmp3"
+output       = "{dir}/{base}.mp3"
+stderr_quiet = true
+parallel    = true
+max_workers = 6
+# params: ch_bitrate=<kbps per channel, e.g. 64>
+
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   MP3 Conversion (Helix MP3 encoder)" },
+    { msg = "   Bitrate : {ch_bitrate} kbps/channel" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} {input} {output} -B{ch_bitrate} -HF2 -D",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.flac]
+desc         = "FLAC conversion (official FLAC encoder)"
+tool         = "flac"
+output       = "{dir}/{base}.flac"
+stderr_quiet = true
+parallel     = true
+max_workers  = 6
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   FLAC Conversion (official FLAC encoder)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} -o {output} {input} --best -f",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.flaccl]
+desc         = "FLAC conversion (FLACCL/CUETools)"
+tool         = "flaccl"
+output       = "{dir}/{base}.flac"
+stderr_quiet = true
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   FLAC Conversion (FLACCL/CUETools, GPU accelerated)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+commands = [
+    "{tool} -8 -o {output} {input}",
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
