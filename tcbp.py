@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tcbp.py - Total Commander Batch Python (v1.5)
+tcbp.py - Total Commander Batch Python (v1.6)
 TOML 기반 범용 배치 처리 엔진
 
 Usage:
@@ -214,9 +214,15 @@ def _has_non_acp(s: str) -> bool:
         return True
 
 
+# ── 임시 ID 생성 (UUID 기반, 멀티프로세싱 파일명 충돌 회피용) ─────────────────
+
+def _gen_tmp_id() -> str:
+    return "tmp_" + uuid.uuid4().hex[:12]
+
+
 # ── Context 빌드 (파일 단위) ──────────────────────────────────────────────────
 
-def build_file_context(file_path: Path, index: int, job: dict, user_params: dict) -> tuple[dict, dict, str, str]:
+def build_file_context(file_path: Path, index: int, job: dict, user_params: dict, task_id: str) -> tuple[dict, dict, str, str]:
     file_path = file_path.resolve()
     input_dir = file_path.parent
     ctx: dict[str, str] = {
@@ -227,6 +233,8 @@ def build_file_context(file_path: Path, index: int, job: dict, user_params: dict
         "ext":    file_path.suffix,
         "index":  str(index),
         "tool":   job["tool_path"],
+        "taskid": task_id,
+        "itemid": _gen_tmp_id(),
         **job.get("defaults", {}),  # job 내 비표준 키 (기본값)
         **user_params,              # CLI 파라미터가 우선
     }
@@ -252,11 +260,12 @@ def build_file_context(file_path: Path, index: int, job: dict, user_params: dict
 
 # ── Pre/Post용 Context (파일 단위 placeholder 제외) ──────────────────────────
 
-def build_global_context(job: dict, user_params: dict) -> tuple[dict, dict]:
+def build_global_context(job: dict, user_params: dict, task_id: str) -> tuple[dict, dict]:
     tool = job["tool_path"]
     raw_ctx = {
         "tool":        tool,
         "max_workers": str(job.get("max_workers", "")),
+        "taskid":      task_id,
         **job.get("defaults", {}),  # job 내 비표준 키 (기본값)
         **user_params,              # CLI 파라미터가 우선
     }
@@ -538,9 +547,10 @@ def process_file(
     user_params: dict,
     logger: logging.Logger,
     dry_run: bool,
+    task_id: str,
     manager: "OutputManager | None" = None,
 ) -> tuple[bool, str]:
-    ctx, raw_ctx, output_path, cwd = build_file_context(file_path, index, job, user_params)
+    ctx, raw_ctx, output_path, cwd = build_file_context(file_path, index, job, user_params, task_id)
     output_p = Path(output_path)
     quiet    = manager is not None
 
@@ -628,7 +638,8 @@ def run_job(
     logger: logging.Logger,
     dry_run: bool,
 ) -> None:
-    global_ctx, global_raw_ctx = build_global_context(job, user_params)
+    task_id = _gen_tmp_id()
+    global_ctx, global_raw_ctx = build_global_context(job, user_params, task_id)
     total = len(files)
 
     # tool 존재 확인
@@ -649,7 +660,7 @@ def run_job(
         errors: list[str] = []
         with ThreadPoolExecutor(max_workers=job["max_workers"]) as executor:
             future_map = {
-                executor.submit(process_file, f, i + 1, job, user_params, logger, dry_run, manager): i + 1
+                executor.submit(process_file, f, i + 1, job, user_params, logger, dry_run, task_id, manager): i + 1
                 for i, f in enumerate(files)
             }
             for future in as_completed(future_map):
@@ -676,7 +687,7 @@ def run_job(
         # ── 순차 처리 ──────────────────────────────────────────────────────
         for i, file_path in enumerate(files):
             try:
-                ok, _ = process_file(file_path, i + 1, job, user_params, logger, dry_run)
+                ok, _ = process_file(file_path, i + 1, job, user_params, logger, dry_run, task_id)
             except Exception as exc:
                 ok = False
                 logger.error(f"[{i + 1}] 예외 발생: {exc}")
