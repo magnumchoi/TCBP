@@ -1,6 +1,6 @@
 # ==============================================================================
 # tcbp — config.toml
-# Total Commander Batch Python 작업 정의 파일
+# Job Configuration File for TCBP (Total Commander Batch Python)
 # ==============================================================================
 
 [global]
@@ -10,7 +10,7 @@ max_workers = 4
 output      = "{dir}/{base}{ext}"
 log         = false
 log_file    = "tcbp.log"
-pause       = true        # 완료 후 Enter 키 대기 여부
+pause       = true        # pause then all jobs finished.
 
 [global.tools]
 magick   = "C:/_FIX/Graphic/Conv_ImageMagick/magick.exe"
