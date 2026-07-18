@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tcbp.py - Total Commander Batch Python (v1.8)
+tcbp.py - Total Commander Batch Python (v1.9)
 TOML 기반 범용 배치 처리 엔진
 
 Usage:
@@ -19,6 +19,10 @@ except ImportError:
     _wcswidth = None
     _wcwidth_char = None
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PART 1. BOOTSTRAP & I18N — 초기화 & 다국어 메시지
+# ═══════════════════════════════════════════════════════════════════════════
 
 # ── i18n: runtime message catalog (English / Korean) / i18n: 실행 중 출력 문구 카탈로그 (영어/한국어) ──
 # Only messages tcbp.py itself prints (errors, warnings, log lines, --help text) go
@@ -142,6 +146,71 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PART 2. WINDOWS API UTILITIES — Windows API 유틸리티
+# Direct Win32 calls used across the file: 8.3 short-path conversion, ACP
+# encodability check, ANSI escape enablement, and argv parsing without cmd.exe.
+# 파일 전체에서 쓰이는 Win32 API 직접 호출 모음: 8.3 단축 경로 변환, ACP 인코딩
+# 가능 여부 확인, ANSI 이스케이프 활성화, cmd.exe 없이 argv 파싱.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _get_short_path(path: str) -> str:
+    """Return the 8.3 ASCII short path via GetShortPathNameW. If the file/directory
+    doesn't exist, recurse up to the parent directory.
+    GetShortPathNameW로 8.3 ASCII 단축 경로를 반환한다.
+    파일/디렉토리가 존재하지 않으면 부모 디렉토리까지 재귀적으로 올라간다."""
+    buf = ctypes.create_unicode_buffer(32768)
+    n = ctypes.windll.kernel32.GetShortPathNameW(path, buf, 32768)
+    if n > 0:
+        return buf.value
+    p = Path(path)
+    if p.parent == p:
+        return path
+    return str(Path(_get_short_path(str(p.parent))) / p.name)
+
+
+def _has_non_acp(s: str) -> bool:
+    """True if the string contains a character that cannot be encoded in the
+    system ACP (cp949, etc). / 시스템 ACP(cp949 등)로 인코딩 불가능한 문자가
+    포함되어 있으면 True."""
+    try:
+        s.encode('mbcs')
+        return False
+    except UnicodeEncodeError:
+        return True
+
+
+def _enable_win_ansi() -> None:
+    try:
+        handle = ctypes.windll.kernel32.GetStdHandle(-11)
+        mode   = ctypes.c_ulong()
+        ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+        ctypes.windll.kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+    except Exception:
+        pass
+
+
+_CommandLineToArgvW = ctypes.windll.shell32.CommandLineToArgvW
+_CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+
+def _parse_cmdline(cmd: str) -> list[str]:
+    """Parse directly via the Windows API without going through cmd.exe ->
+    preserves Unicode paths. / cmd.exe를 거치지 않고 Windows API로 직접 파싱
+    → Unicode 경로 보존."""
+    argc = ctypes.c_int(0)
+    argv = _CommandLineToArgvW(cmd, ctypes.byref(argc))
+    if not argv:
+        return [cmd]
+    try:
+        return [argv[i] for i in range(argc.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(argv)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PART 3. CLI & CONFIG — CLI 파싱 & 설정 로드/검증
+# ═══════════════════════════════════════════════════════════════════════════
 
 # ── CLI Parsing / CLI 파싱 ─────────────────────────────────────────────────────
 
@@ -596,6 +665,10 @@ def validate_config(config: dict, job_name: str) -> None:
     print(report)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# PART 4. FILE & CONTEXT — 파일 목록 로드 & Placeholder Context 빌드
+# ═══════════════════════════════════════════════════════════════════════════
+
 # ── File List Loading / 파일 목록 로드 ─────────────────────────────────────────
 
 def load_file_list(filelist_path: str) -> list[Path]:
@@ -630,34 +703,6 @@ class SafeDict(dict):
 
 def substitute(template: str, context: dict) -> str:
     return template.format_map(SafeDict(context))
-
-
-# ── Windows Short Path (8.3) Conversion / Windows 단축 경로 (8.3) 변환 ─────────
-
-def _get_short_path(path: str) -> str:
-    """Return the 8.3 ASCII short path via GetShortPathNameW. If the file/directory
-    doesn't exist, recurse up to the parent directory.
-    GetShortPathNameW로 8.3 ASCII 단축 경로를 반환한다.
-    파일/디렉토리가 존재하지 않으면 부모 디렉토리까지 재귀적으로 올라간다."""
-    buf = ctypes.create_unicode_buffer(32768)
-    n = ctypes.windll.kernel32.GetShortPathNameW(path, buf, 32768)
-    if n > 0:
-        return buf.value
-    p = Path(path)
-    if p.parent == p:
-        return path
-    return str(Path(_get_short_path(str(p.parent))) / p.name)
-
-
-def _has_non_acp(s: str) -> bool:
-    """True if the string contains a character that cannot be encoded in the
-    system ACP (cp949, etc). / 시스템 ACP(cp949 등)로 인코딩 불가능한 문자가
-    포함되어 있으면 True."""
-    try:
-        s.encode('mbcs')
-        return False
-    except UnicodeEncodeError:
-        return True
 
 
 # ── Temp ID Generation (UUID-based, avoids multiprocess filename collisions) / 임시 ID 생성 (UUID 기반, 멀티프로세싱 파일명 충돌 회피용) ──
@@ -725,6 +770,10 @@ def build_global_context(job: dict, user_params: dict, task_id: str) -> tuple[di
     ctx["tool"] = f'"{tool}"' if tool else ""
     return ctx, raw_ctx
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PART 5. DISPLAY & OUTPUT — 화면 표시 폭 계산 & 멀티스레드 출력
+# ═══════════════════════════════════════════════════════════════════════════
 
 # ── Filename Truncation for Screen Display / 화면 표시용 파일명 축약 ───────────
 
@@ -822,16 +871,6 @@ def _truncate_message(text: str, max_width: int) -> str:
 
 
 # ── Order-Preserving Output Manager for Multithreading / 멀티스레드 순서 보장 출력 매니저 ──
-
-def _enable_win_ansi() -> None:
-    try:
-        handle = ctypes.windll.kernel32.GetStdHandle(-11)
-        mode   = ctypes.c_ulong()
-        ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode))
-        ctypes.windll.kernel32.SetConsoleMode(handle, mode.value | 0x0004)
-    except Exception:
-        pass
-
 
 class OutputManager:
     """Receives start/note/finish events from threads and prints them.
@@ -935,6 +974,10 @@ class OutputManager:
             self._logger.debug(line)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# PART 6. LOGGING — 로깅 설정
+# ═══════════════════════════════════════════════════════════════════════════
+
 # ── Logging Setup / Logging 설정 ───────────────────────────────────────────────
 
 def setup_logging(log: bool, log_file: str) -> logging.Logger:
@@ -958,24 +1001,9 @@ def setup_logging(log: bool, log_file: str) -> logging.Logger:
     return logger
 
 
-# ── Windows Command-Line Parsing (CommandLineToArgvW) / Windows 명령줄 파싱 (CommandLineToArgvW) ──
-
-_CommandLineToArgvW = ctypes.windll.shell32.CommandLineToArgvW
-_CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
-
-def _parse_cmdline(cmd: str) -> list[str]:
-    """Parse directly via the Windows API without going through cmd.exe ->
-    preserves Unicode paths. / cmd.exe를 거치지 않고 Windows API로 직접 파싱
-    → Unicode 경로 보존."""
-    argc = ctypes.c_int(0)
-    argv = _CommandLineToArgvW(cmd, ctypes.byref(argc))
-    if not argv:
-        return [cmd]
-    try:
-        return [argv[i] for i in range(argc.value)]
-    finally:
-        ctypes.windll.kernel32.LocalFree(argv)
-
+# ═══════════════════════════════════════════════════════════════════════════
+# PART 7. EXECUTION ENGINE — 명령 실행 & Job 오케스트레이션
+# ═══════════════════════════════════════════════════════════════════════════
 
 # ── Single Command Execution / 단일 명령 실행 ──────────────────────────────────
 
@@ -1220,6 +1248,10 @@ def run_job(
     logger.info(_t("info_job_summary", success=success_count, failed=failed_count, total=total))
     # logger.info("=" * 60)
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PART 8. ERROR HANDLING & ENTRY POINT — 오류 처리 & 진입점
+# ═══════════════════════════════════════════════════════════════════════════
 
 # ── Error Output / Emergency Log (for crashes before setup_logging) / 오류 출력 / 긴급 로그 (setup_logging 이전 크래시용) ──
 
