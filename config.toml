@@ -4,12 +4,13 @@
 # ==============================================================================
 
 [global]
+lang        = "ko"         # "ko" | "en" — output language (overridden by --lang)
 on_error    = "continue"   # "continue" | "stop"
 parallel    = false
 max_workers = 4
 output      = "{dir}/{base}{ext}"
 log         = false
-log_file    = "tcbp.log"
+log_file    = "logs/tcbp_{job}_{timestamp}.log"  # {job}=job name, {timestamp}=YYYYMMDD_HHMMSS — one file per run
 pause       = true        # pause then all jobs finished.
 
 [global.tools]
@@ -109,6 +110,8 @@ post = [
     { msg = "-------------------------------------------------------------------------------" },
 ]
 
+# ------------------------------------------------------------------------------
+
 [jobs.pngcrush]
 desc        = "Optimize PNG format (pngcrush)"
 tool        = "pngcrush"
@@ -136,7 +139,7 @@ post = [
 [jobs.ResizeImages]
 desc     = "Resize images (keep aspect ratio, only to smaller size)"
 tool     = "gm"
-output   = "{dir}/{base}{ext}"
+output   = "{dir}/{base}_resized{ext}"
 params = [
     { key="size",   desc="size (pixels)",  type="int" },
 ]
@@ -308,7 +311,9 @@ output       = "{dir}/{base}.mp3"
 stderr_quiet = true
 parallel    = true
 max_workers = 6
-# params: ch_bitrate=<kbps per channel, e.g. 64>
+params = [
+    { key="ch_bitrate", desc="bitrate per channel (kbps, e.g. 64)", type="int" },
+]
 
 pre = [
     { msg = "-------------------------------------------------------------------------------" },
@@ -366,5 +371,128 @@ commands = [
 post = [
     { msg = "-------------------------------------------------------------------------------" },
     { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ==============================================================================
+#  TEXT FILE UTILITIES
+# ==============================================================================
+
+[jobs.RemoveBOM]
+desc                    = "Remove UTF-8 BOM from text files (in-place)"
+plugin                  = "remove_bom"
+output                  = "{dir}/{base}{ext}"
+allow_output_overwrite  = true
+parallel                = true
+max_workers             = 4
+params = [
+    { key="backup",   desc="Backup original as .bak before overwriting (true/false)", type="bool" },
+    { key="eachline", desc="Remove BOM at the start of every line, not just file start (true/false)", type="bool" },
+]
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Remove UTF-8 BOM (in-place)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Process finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ==============================================================================
+#  IMAGE PROCESSING (PLUGIN)
+# ==============================================================================
+
+[jobs.ConvJPG]
+desc        = "Recompress images to JPEG using MozJPEG"
+plugin      = "mozjpeg"
+output      = "{dir}/{base}.jpg"
+parallel    = true
+max_workers = 4
+params = [
+    { key="quality", desc="JPEG quality (1-100)", type="int" },
+]
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   MozJPEG recompression (PARALLEL mode, {max_workers} workers)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Process finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.bmp2png]
+desc        = "Convert BMP to optimized PNG"
+plugin      = "bmp2png"
+output      = "{dir}/{base}.png"
+parallel    = true
+max_workers = 8
+params = [
+    { key="delete", desc="Delete original BMP after successful conversion (true/false)", type="bool" },
+]
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Convert BMP to optimized PNG (PARALLEL mode, {max_workers} workers)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Process finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+# bmp2png의 폴더(디렉토리) 입력 모드 버전 — FileList 인자로 목록 파일 대신 폴더
+# 경로를 직접 받아, 그 폴더(하위 폴더 포함)에서 *.bmp 파일을 자동으로 찾아 처리한다.
+# (README_ko.md 4.12절 / plugin_guide_ko.md 참고)
+# Total Commander 연동 시 %P 사용법은 README_ko.md 7.1절 참고 — 반드시 "%P." 형태로 trailing dot을 붙일 것.
+
+[jobs.Bmp2PngRecursive]
+desc        = "Convert BMP to optimized PNG (recursive folder input)"
+plugin      = "bmp2png"
+input_mode  = "directory"   # FileList 인자는 폴더 경로여야 함 — list.txt를 주면 오류
+recursive   = true          # 하위 폴더까지 탐색
+include     = ["*.bmp"]     # 대상 확장자
+output      = "{dir}/{base}.png"
+parallel    = true
+max_workers = 8
+params = [
+    { key="delete", desc="Delete original BMP after successful conversion (true/false)", type="bool" },
+]
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Convert BMP to optimized PNG (recursive folder scan, PARALLEL mode, {max_workers} workers)" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Process finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+
+# ------------------------------------------------------------------------------
+
+[jobs.GroupMD5]
+desc   = "Generate grouped MD5 hash files"
+plugin = "group_md5"
+output = ""     # BatchSession — output 개념 없음(8.3.2); global.output 상속을 명시적으로 차단
+params = [
+    { key="bom",        desc="Generate .md5 files as UTF-8 with BOM (true/false)", type="bool" },
+    { key="chunk_size", desc="MD5 read chunk size in MB",                          type="int" },
+]
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Generate grouped MD5 hash files" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Process finished." },
     { msg = "-------------------------------------------------------------------------------" },
 ]

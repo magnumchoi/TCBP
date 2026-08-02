@@ -1,11 +1,18 @@
 # tcbp — Total Commander Batch Python
-# 외부 패키지 의존성 없음. 표준 라이브러리만 사용.
+# 외부 패키지 없이도 동작합니다. 표준 라이브러리만으로 코어가 완결됩니다.
 #
 # 최소 요구 버전: Python 3.11+
 #   tomllib           — Python 3.11 내장 (3.10 이하: pip install tomli)
 #   ctypes, threading — Windows 내장
 #
-# ── 선택 패키지 ────────────────────────────────────────────────────────────────
+# ── 선택 패키지 (코어) ─────────────────────────────────────────────────────────
+#
+# pydantic
+#   Session(FileSession/BatchSession)과 플러그인 메타정보(PluginInfo)의 타입을
+#   엄격하게 검증하는 데 사용됩니다 (5장 플러그인 시스템 참고).
+#   미설치 시 표준 dataclass 기반의 느슨한 검증으로 자동 대체되며, 안내 메시지가
+#   출력됩니다 — tcbp.py 자체는 여전히 정상 실행됩니다. 필수는 아니지만 권장.
+#   pip install pydantic
 #
 # keyboard
 #   pause = true 설정 시 "아무 키나 누르면 종료" 기능에 사용됩니다.
@@ -16,6 +23,19 @@
 #   화면에 표시되는 파일명/메시지 길이(콘솔 표시 폭) 계산에 사용됩니다.
 #   미설치 시 east_asian_width 기반 근사치로 자동 대체되므로 필수는 아닙니다.
 #   pip install wcwidth
+#
+# ── 플러그인별 의존성 ──────────────────────────────────────────────────────────
+#
+# 개별 플러그인(./plugin/*.py)이 필요로 하는 패키지는 여기 나열하지 않습니다 —
+# 각 플러그인이 @plugin(requirements=[...])로 스스로 선언하며, 자동 설치되지
+# 않습니다. 구체적인 목록은 README_ko.md/README_en.md 5.7절을 참고하세요
+# (예: MozJPEG은 jpeglib/numpy/Pillow, bmp2png는 opencv-python/Pillow/numpy).
+#
+# ── tests/ 전용 (dev 의존성, tcbp.py 코어와 무관) ────────────────────────────────
+#
+# pytest, Pillow, numpy
+#   tests/test_plugin_cli_golden.py의 이미지 픽셀 비교(RMSE)에만 쓰입니다.
+#   pip install pytest Pillow numpy
 #
 # ── Python 3.10 이하 환경 ──────────────────────────────────────────────────────
 #

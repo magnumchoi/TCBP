@@ -13,6 +13,8 @@ The main features of this tool are as follows.
 - You can specify a command to run once at the start (pre), a command to run repeatedly on each target file (command), and a command to run once at the end (post).
 
 ### 2.2 Features improved over `TCBL`
+- In addition to external CLI tools, you can add a Python program that processes a single file as a plugin. (Four plugins — `bmp2png`, `mozjpeg`, `group_md5`, `remove_bom` — are bundled by default.)
+- Supports recursive processing — files inside a given folder, and optionally its subfolders, can be processed directly.
 - File processing can be multi-threaded, allowing multiple files to be processed concurrently. This is advantageous for processing-heavy tasks such as `MP3` or `PNG` encoding.
 - Even when files are processed out of order due to multi-threading, screen output is kept in sequential order.
 - During multi-processing, a UUID4-based temporary ID can be generated and used so that intermediate file names don't collide across processes.
@@ -25,15 +27,19 @@ The main features of this tool are as follows.
 ## 3. Program Structure and Usage
 ### 3.1 Requirements
 - Python 3.11 or later (built-in `tomllib`)
-- No external libraries required (standard library only). However, the following are used automatically if installed:
+- Works with no external libraries (standard library only). However, the following are used automatically if installed:
+  - `pydantic`: used for strict type validation of Session objects / plugin metadata (falls back to looser standard-dataclass-based validation if not installed — prints a notice, see Chapter 5)
   - `keyboard`: used for the "press any key to exit" wait when `pause = true` (falls back to waiting for the Enter key if not installed)
   - `wcwidth`: used to calculate the display width of file names/messages on screen (falls back to an approximate calculation if not installed)
+- Packages required by individual plugins (e.g. `jpeglib` for MozJPEG) are separate — they are never auto-installed and must be installed manually (see section 5.7).
 - Windows environment (full Unicode path support)
 ### 3.2 File Structure
 ```filelist
-tcbp.py           Execution engine
-config.toml       Job definition file (default)
-tcbp.log          Execution log (auto-created when log=true)
+tcbp.py             Execution engine
+validate_config.py  config.toml pre-flight validation tool (see section 4.11)
+config.toml         Job definition file (default)
+plugin/              Plugin folder (see Chapter 5)
+logs/                Execution log folder (auto-created when log=true, one file per run)
 ```
 ### 3.3 Basic Usage
 
@@ -101,6 +107,8 @@ C:\images\photo02.png
 C:\images\photo03.bmp
 ```
 
+Instead of a list file, you can also pass **a folder path directly** and have TCBP find and process the files inside it automatically — see section 4.12 (Directory Input Mode).
+
 ---
 
 ## 4. `config.toml` Structure and Configuration
@@ -114,7 +122,7 @@ parallel     = false                    # overall default
 max_workers  = 4                        # max worker count for multi-threaded parallel processing
 output       = "{dir}/{base}_out{ext}"  # output path rule
 log          = false                    # whether to write a log file
-log_file     = "tcbp.log"               # log file path
+log_file     = "logs/tcbp_{job}_{timestamp}.log"  # log file path ({job}/{timestamp} placeholders supported)
 pause        = false                    # whether to wait for a key press after completion
 stderr_quiet = false                    # whether to suppress the tool's STDERR output
 lang         = "ko"                     # "ko" | "en" — tcbp.py output language (CLI --lang takes priority)
@@ -356,11 +364,14 @@ on_error = "stop"       # stop immediately on the first failure
 ```toml
 [global]
 log      = true
-log_file = "tcbp.log"
+log_file = "logs/tcbp_{job}_{timestamp}.log"
 ```
 - `log = false`: console output only
 - `log = true`: console + file logging simultaneously
-- The log file is always created **in the same folder as tcbp.py** (regardless of the run location).
+- When `log_file` is a relative path, it's always anchored to **the same folder as tcbp.py** (regardless of the run location).
+- `log_file` supports `{job}` (job name) and `{timestamp}` (`YYYYMMDD_HHMMSS` at run time) placeholders, so each run gets its own file instead of appending to one shared log.
+- The console still shows plain messages only (no level prefix), while the file uses `%(asctime)s [%(levelname)s] %(message)s`, adding a timestamp and level to each line.
+- There's no separate failed-run log file (`*_failed.log`) — failures can be filtered within the same log file by `[ERROR]` level.
 - The log records job headers, per-file results, and error messages (CMD + STDERR).
 
 #### Emergency Error Log (`tcbp_error.log`)
@@ -382,44 +393,162 @@ A '=' is required after the key.
 
 When an error occurs, the console window stays open automatically so you can check the content.
 
-### 4.11 Automatic Config Validation
-Right after `config.toml` is loaded, the job to be run is automatically checked for common authoring mistakes. This does not change the structure or writing style of `config.toml` in any way, and a correctly written job runs exactly as before, with no messages at all.
+### 4.11 Config Validation
+
+#### 4.11.1 tcbp.py's Own Minimal Guard
+Right after resolving a Job, tcbp.py aborts immediately if `tool`, `output`, or `commands` is empty. This isn't a typo-diagnosis feature — it's the minimum safety net needed to keep a config mistake (like an empty `{tool}`) from turning into a confusing runtime failure instead (for example, Windows actually ships its own `convert.exe`, which could end up running by accident).
+
+#### 4.11.2 Pre-flight Validation Tool — `validate_config.py`
+Authoring diagnostics such as typos, unused keys, and undefined placeholders are handled entirely by a separate tool, `validate_config.py`. tcbp.py never calls it automatically during a run, so after editing `config.toml` you should run it manually (or from CI) before running the actual batch.
+
+```commandline
+python validate_config.py <config.toml> [--job JOB] [--sample <filelist>] [--lang ko|en]
+```
 
 Checks performed:
-- **Missing required keys** — if `tool`, `output`, or `commands` is actually empty, it is treated as an error and execution is aborted.
-- **Misspelled reserved words** — a key that closely resembles a standard key (`tool`, `output`, `pre`, etc.), such as `tool_pat`, is flagged as a suspected typo with a warning.
-- **Misspelled placeholders** — a placeholder that is never filled in anywhere, such as `{basename}`, triggers a warning, and if a similarly named real placeholder exists, it is suggested.
-- **Unused custom keys** — a value defined in the job but never referenced as `{key}` in `pre`/`commands`/`post`/`output` is reported as informational.
+- **TOML syntax errors** — shown together with the line/column and the original source code frame.
+- **Missing required keys** — `tool`, `output`, or `commands` actually being empty.
+- **Misspelled reserved words** — a key that closely resembles a standard key, such as `tool_pat`.
+- **Misspelled placeholders** — a `{placeholder}` that is never filled in anywhere; a similarly named real placeholder is suggested if one exists.
+- **Unused custom keys** — a value defined in the job but never referenced anywhere as `{key}`.
+- **`global.tools` path validity** — a full sweep confirming every registered tool executable actually exists.
+- **Output/input overwrite risk** — a warning if the `output` template could resolve to the same file as `input`.
+- **Type typos** — a `params` `type` that isn't `"int"`, a `parallel`/`log`/`pause`/`stderr_quiet`/`recursive` value that isn't a bool, an `input_mode` that isn't `"list"`/`"directory"`, an `include` that isn't a list of strings, and similar mistakes.
+- **Misused directory-input settings** — a warning if `recursive`/`include` are set on a Job whose `input_mode` isn't `"directory"` (see section 4.12).
+- **Sample dry-run check** (when `--sample` is given) — substitutes placeholders against a real file list to catch format errors before an actual run.
 
-If there are any errors (ERROR), execution is aborted; warnings (WARNING) and info (INFO) are just reported and execution continues as normal.
+Omitting `--job` validates every Job defined in `config.toml` at once. Exits with code 1 if there are any errors (ERROR), so it can be used as a gate in CI or batch scripts; exits with code 0 if there are only warnings (WARNING) or info (INFO).
 
+Sample output:
 ```
-=== Config Validation Result ===
+--- global ---
+[WARNING] Tool path not found: gm -> C:/tools/gm.exe
 
-Job: ResizeImage
+--- ResizeImage ---
+[ERROR] Missing required key: tool (or a tool name registered in global.tools is required)
+[WARNING] Unknown key: tool_pat
+        Did you mean: tool
+[WARNING] Undefined placeholder: {basename}
+        Did you mean: {name}
+[INFO] Unused key: quality
 
-[ERROR]
-- Missing required key: tool (or a tool name registered in global.tools is required)
-
-[WARNING]
-- Unknown key: tool_pat
-  Did you mean: tool
-- Undefined placeholder: {basename}
-  Did you mean: {name}
-
-[INFO]
-- Unused key: quality
-
-Total 1 error(s)  2 warning(s)  1 info(s)
+Validated 1 job(s) — 1 error(s), 2 warning(s), 1 info
 ```
+
+### 4.12 Directory (Folder) Input Mode
+
+Instead of a list file (list.txt), you can pass **a folder path directly** as the FileList argument, and have TCBP find and process the files inside that folder (optionally including subfolders) on its own.
+
+```toml
+[jobs.Bmp2PngRecursive]
+plugin      = "bmp2png"
+input_mode  = "directory"   # this Job only accepts a folder path — passing a list.txt is an error
+recursive   = true          # search subfolders too
+include     = ["*.bmp"]     # glob patterns (every file, if omitted)
+output      = "{dir}/{base}.png"
+```
+
+```commandline
+python tcbp.py Bmp2PngRecursive D:\Images
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `input_mode` | `"list"` | `"list"`: the FileList argument must be a list file (the existing behavior). `"directory"`: the FileList argument must be a folder. |
+| `recursive` | `false` | Only meaningful when `input_mode = "directory"`. If `true`, subfolders are searched recursively too. |
+| `include` | `[]` (everything) | Only meaningful when `input_mode = "directory"`. A list of glob patterns (e.g. `["*.bmp"]`, `["*.jpg", "*.jpeg"]`). A file matching more than one pattern is still only included once. |
+
+All three keys can also be set as defaults in the `[global]` section and overridden per job (the same inheritance rule as other settings).
+
+**Contract — an error if `input_mode` and the actual argument disagree**: `input_mode` is a contract that declares, ahead of time, what kind of FileList argument this Job expects. If the argument actually passed in disagrees with that contract (e.g., `input_mode="directory"` but a list file is given, or the reverse — a folder is given to a Job with the default `input_mode` of `"list"`), TCBP does not process any files; it aborts immediately with a clear error.
+
+For how to wire this up with Total Commander (especially the caution around using `%P`), see section 7.1.
 
 ---
 
-## 5. How to Add a New Job
+## 5. Plugin System
+
+### 5.1 Overview — `tool` vs `plugin`
+Instead of wrapping an external CLI tool with `tool = "..."`, you can write file-processing logic directly as a Python function and wire it into a Job. `tool` and `plugin` cannot both be set on the same Job.
+
+| | `tool = "..."` | `plugin = "..."` |
+|---|---|---|
+| Processing logic | External CLI executable (`subprocess`) | A Python function in `./plugin/<name>.py` |
+| Target | Existing executables like GraphicsMagick, oxipng | Logic implemented directly in Python |
+| `commands` key | Required | Not used (warns if present) |
+
+The plugin API spec (`FileSession`/`BatchSession`/`ExecResult`/`BatchResult`, `session.log()`, etc.) and how to write a new plugin are covered in detail in `plugin/plugin_guide_en.md` (the plugin authoring guide) — this chapter focuses on how to **use** the bundled plugins.
+
+### 5.2 Session Types — FileSession / BatchSession
+| | FileSession | BatchSession |
+|---|---|---|
+| Unit of work | 1 file | The whole file list |
+| `parallel` | Supported (concurrent up to `max_workers`) | Ignored (always sequential) |
+| `output` | Required | Optional (or `output = ""`) |
+| `run()` return type | `ExecResult(success, message)` | `BatchResult(succeeded, failed)` |
+| Examples | RemoveBOM, MozJPEG, bmp2png | GroupMD5 |
+
+### 5.3 Declaring a Plugin Job in config.toml
+```toml
+[jobs.RemoveBOM]
+plugin                  = "remove_bom"     # loads ./plugin/remove_bom.py
+output                  = "{dir}/{base}{ext}"
+allow_output_overwrite  = true             # a Job whose output intentionally overwrites its input must opt in explicitly
+params = [
+    { key="backup", desc="Back up the original as .bak", type="bool" },
+]
+```
+BatchSession Jobs may omit `output` (or set `output = ""`) — this is for cases like GroupMD5 that write results per file group rather than per file.
+
+### 5.4 Bundled Plugins
+| Job name | Session type | Description | Key params |
+|---|---|---|---|
+| `RemoveBOM` | FileSession | Removes the UTF-8 BOM from text files | `backup`, `eachline` (bool) |
+| `MozJPEG` | FileSession | Recompresses/converts images to JPEG using MozJPEG | `quality` (int, 1-100) |
+| `bmp2png` | FileSession | Converts BMP to optimized PNG (via oxipng) | `delete` (bool) |
+| `GroupMD5` | BatchSession | Groups files by filename similarity and generates a `.md5` list per group | `bom` (bool), `chunk_size` (int, MB) |
+
+```commandline
+python tcbp.py RemoveBOM list.txt backup=true
+python tcbp.py MozJPEG   list.txt quality=90
+python tcbp.py bmp2png   list.txt delete=true
+python tcbp.py GroupMD5  list.txt bom=false chunk_size=8
+```
+
+### 5.5 Standalone Plugin CLI
+Every plugin has a standalone CLI entry point that processes a single file (or, for GroupMD5, a single list file) without tcbp — intended for plugin development/debugging. Wildcards, recursive search, and list-file-based batch processing are not supported here.
+```commandline
+python plugin\remove_bom.py <input> <output> [backup=true] [eachline=true]
+python plugin\mozjpeg.py    <input> <output> [quality=90]
+python plugin\bmp2png.py    <input> <output> [delete=true] [oxipng_exe=...]
+python plugin\group_md5.py  <list_file> [bom=true] [chunk_size=8]
+```
+
+### 5.6 The `--strict` Flag
+When a FileSession plugin running in parallel mode (`parallel = true`) calls `log()` with a slot outside the declared count (`notes_per_file`), the default is to skip the console update and write a warning to the log file only; passing `--strict` aborts immediately with an error instead.
+
+For how this works and the recommended workflow while developing a plugin, see Sections 5.3–5.4 (the log() slot reservation mechanism / the `--strict` flag) of `plugin/plugin_guide_en.md`.
+
+### 5.7 Plugin Dependencies
+Packages a plugin needs are **not auto-installed** by tcbp, so `pip install` them manually per the table below.
+
+| Plugin | Required packages |
+|---|---|
+| `remove_bom` | None (standard library only) |
+| `mozjpeg` | `jpeglib`, `numpy`, `Pillow` |
+| `bmp2png` | `opencv-python`, `Pillow`, `numpy` |
+| `group_md5` | None (standard library only) |
+
+For how dependencies are declared and how `validate_config.py` treats them, see Section 4.5 of `plugin/plugin_guide_en.md`.
+
+---
+
+## 6. How to Add a New Job
 1. Add a `[jobs.NewJobName]` section to `config.toml`
 2. Define `tool`, `output`, and `commands`
 3. If parameters are needed, write them in `commands` as `{param_name}`
 4. Pass them as `key=value` at run time
+5. (Recommended) Run `python validate_config.py config.toml --job NewJobName` as a pre-flight check before running the actual batch (see section 4.11)
 ```toml
 [jobs.Sharpen]
 desc        = "Sharpen images"
@@ -438,7 +567,7 @@ It's possible to skip the `output` key and `{output}` placeholder and instead wr
 
 ---
 
-## 6. Total Commander Integration
+## 7. Total Commander Integration
 - Configure this in Total Commander's button bar or in a custom menu under the Start menu, as follows.
 - Leave the start path blank unless you have a specific reason not to. That way, Total Commander's current path becomes the working directory.
 - `%UL` : the path of the selection list file that TC generates (acting as list.txt, UTF-8 encoded, containing the target files as full paths)
@@ -454,8 +583,32 @@ To pass parameters to a job that takes parameters, configure it like this.
 Parameters: C:\path\TCBP\tcbp.py ResizeImages %UL size=1024
 ```
 
+### 7.1 Wiring Up a Folder (Directory) Input Job — Caution When Using `%P` with Total Commander
+
+⚠️ Caution: For a Job declared with `input_mode = "directory"` (a Job that takes a folder itself, rather than a list file, and searches it recursively), wire it up to a TC button using the **`%P` macro, which passes the current panel's folder path**, instead of the selected file list (`%UL`). When you do, **you must add a period (`.`) right before the closing quote, as shown below.**
+
+```
+Parameters: C:\path\TCBP\tcbp.py Bmp2PngRecursive "%P."
+```
+
+**Explanation**: `%P` conventionally expands with a trailing backslash (`\`) at the end of the path (e.g., `D:\Images\`). If you simply wrap this in quotes in the Parameters field as `"%P"`, Windows' command-line argument-parsing rules mean that **the backslash right before the closing quote escapes that quote**, so the argument doesn't end where you intended. As a result, the Job name or other parameters that should come after it can get merged into the same argument, or an unexpected error can occur. Adding a trailing dot avoids this escaping problem. Once you write it as `"%P."`, the path that gets substituted becomes `D:\Images\.`, which is a valid path pointing to the exact same folder as `D:\Images\`.
+
+| Way of writing it | Result |
+|---|---|
+| `%P` (no quotes) | ❌ If the folder path contains a space, the argument gets split into multiple pieces |
+| `"%P"` (quoted, no period) | ❌ The trailing backslash escapes the closing quote, corrupting the argument |
+| `"%P."` (period added) | ✅ Works correctly |
+
+### 7.2 How Directory Input Mode Builds Its File List
+
+**Sort logic**: Directory-scan results are always sorted by name, so ordering never depends on whatever order the filesystem happens to return files in — keeping the `{index}` placeholder and parallel-mode screen output ordering reproducible. When `recursive = true`, results are **not** produced by sorting the full path strings all at once; instead, each folder's own files are listed first (by name), then its subfolders are visited in name order (the same rule applied recursively within each).
+
+If this rule weren't applied and the full absolute path strings were sorted directly instead, a subfolder with a numeric name (e.g. `001`) could end up compared against a numerically-named file in the current folder (e.g. `009.bmp`), scrambling the order. With `001/` and `009.bmp`–`012.bmp` at the root, the third character of `"001\013.bmp"` (`1`) is less than the third character of `"009.bmp"` (`9`), so all of `001`'s contents would sort before the root's own `009.bmp`–`012.bmp` — meaning the current folder's own files could end up interleaved among its subfolders in a way that contradicts what you'd intuitively expect.
+
+**Relationship to existing features**: A directory input is internally converted into a file list (the same as with list.txt) and handed to the existing processing engine as-is. That means tool-based Jobs, FileSession/BatchSession plugins, `parallel` processing, placeholder substitution, logging, and every other feature work unmodified.
+
 ---
-## 7. Technical Note: Unicode Path Handling Policy
+## 8. Technical Note: Unicode Path Handling Policy
 Some external tools (e.g. gm.exe) are ANSI builds, so if a path or file name contains characters outside the system code page (cp949) range (e.g. Japanese), the tool may fail to open the file. TCBP works around this by passing the Unicode directory as the working directory (cwd) via `subprocess.run(cwd=unicode_dir)`, and passing only the file name as a relative path in the tool's arguments. This lets programs that only support ANSI path names correctly handle files with Unicode paths without issue.
 ```
 gm.exe convert -quality 95 "001.jpg" "001.png"
@@ -464,7 +617,7 @@ gm.exe convert -quality 95 "001.jpg" "001.png"
 - This is passed via the `lpCurrentDirectory` parameter of `CreateProcessW`, so Python sets the Unicode directory as the cwd.
 - When the tool calls `fopen("001.jpg")`, the OS internally resolves it as `cwd + file name`.
 
-## 8. Technical Note: TCBL → TCBP Migration Table
+## 9. Technical Note: TCBL → TCBP Migration Table
 For those migrating from the existing TCBL tool to this tool, here is a placeholder mapping table.
 
 | TCBL | TCBP |
@@ -481,11 +634,11 @@ For those migrating from the existing TCBL tool to this tool, here is a placehol
 | `end=` | `post = [...]` |
 | `batch_preset.ini [Section]` | `config.toml [jobs.JobName]` |
 
-## 9. Technical Note: `shell=True` vs `shell=False`, and Rules for Writing Built-in vs External Commands
+## 10. Technical Note: `shell=True` vs `shell=False`, and Rules for Writing Built-in vs External Commands
 
 TCBP runs every `pre` / `commands` / `post` command via `subprocess` with **`shell=False`**. This chapter explains why, and the rules to follow when writing commands in `config.toml`.
 
-### 9.1 Two Ways `subprocess` Launches a Process
+### 10.1 Two Ways `subprocess` Launches a Process
 
 | | Process actually launched | Fate of the command string |
 |---|---|---|
@@ -505,9 +658,9 @@ Because `shell=True` has cmd.exe interpret the string one more time:
 - Quote (`"`) handling follows cmd.exe's own rules, so once Unicode paths, spaces, or special characters get mixed in, it becomes subtle to determine how to safely wrap them in quotes.
 - If an externally sourced string, such as a file name, is inserted directly into the command, there is a risk of **command injection**.
 
-`shell=False` bypasses cmd.exe entirely, so the problems above disappear at the root, and it lets the Unicode path workaround described in Chapter 7 work reliably, on the premise that arguments are passed through as-is. This is why TCBP runs every command uniformly with `shell=False`.
+`shell=False` bypasses cmd.exe entirely, so the problems above disappear at the root, and it lets the Unicode path workaround described in Chapter 8 work reliably, on the premise that arguments are passed through as-is. This is why TCBP runs every command uniformly with `shell=False`.
 
-### 9.2 If You Want to Use a Shell Built-in Command
+### 10.2 If You Want to Use a Shell Built-in Command
 
 `echo`, `del`, `copy`, `dir`, `cd`, `set`, and similar commands are **not executable files — they exist only as built-in commands inside cmd.exe** (there are no files like `echo.exe` or `del.exe` on Windows). If you run `"echo hello"` as-is with `shell=False`, the OS tries to find an executable file named `echo`, but no such executable exists, so it fails with `FileNotFoundError`.
 
@@ -520,14 +673,18 @@ commands = [
 ]
 ```
 
-## 10. Version History
+## 11. Version History
 - **v1.0:** Initial release
 - **v1.1:** Fixed multi-processing so that whichever result finishes first is printed first (previously, a file that started later but finished earlier would have its output held back until the earlier file's output was printed)
 - **v1.2:** Renamed the `output_rule` key to `output` (for consistency with the `{output}` placeholder)
 - **v1.3:** When output is too long to fit on one line, the file name is now shown with the middle truncated
 - **v1.4:** Changed `pre`/`post` to run with `shell=False` (`CommandLineToArgvW` parsing) just like `commands`. `cmd.exe` built-in commands must now always be written with `cmd /c` with no exceptions (applies across all of `config.toml`), and pre/post results (STDOUT/STDERR) are now also recorded in the log file. As a result, writing something like `cmd /c echo ----banner-text----` to print banners became too cumbersome, so a dedicated `msg` command for printing messages was added.
 - **v1.5:** Fixed a silent-failure bug where a command that referenced `{output}` but did not actually create the file was still counted as a 'success'; it is now counted as a 'failure'
-- **v1.6:** Added `{taskid}` (shared across the whole batch) / `{itemid}` (per-file) placeholders to avoid file name collisions when a temporary file is needed in a multi-step command. Updated the Chapter 7 Unicode path handling policy description in the docs to match the actual implementation (relative-path mode). Cleaned up the Chapter 9 technical notes content.
+- **v1.6:** Added `{taskid}` (shared across the whole batch) / `{itemid}` (per-file) placeholders to avoid file name collisions when a temporary file is needed in a multi-step command. Updated the Chapter 8 Unicode path handling policy description in the docs to match the actual implementation (relative-path mode). Cleaned up the Chapter 10 technical notes content.
 - **v1.7:** Improved the on-screen file name length calculation to prefer using `wcwidth` (falls back to the previous method if not installed). Added a feature that automatically validates job definitions right after loading `config.toml` (improved TOML syntax error messages; diagnoses missing required keys, misspelled reserved words, misspelled placeholders, and unused keys).
 - **v1.8:** Added bilingual Korean/English support for text that tcbp.py itself outputs (errors, warnings, logs, `--help`). Selectable via `--lang ko`, `--lang en` or `[global] lang` in `config.toml` (default `ko`). Content the user writes in `config.toml` (`desc`, `msg`) is excluded from translation.
 - **v1.9:** Added section-divider comments and relocated a few functions to group them by area (no code behavior changes).
+- **v2.0:** Refactored into classes; added a new config.toml validation tool, `validate_config.py`.
+- **v2.1:** Separated log files per Job.
+- **v2.2:** Added the plugin system (Chapter 5) — a `plugin = "..."` Job type that processes files with a Python function instead of an external CLI tool. Two session types, FileSession (1 file, parallel-capable) and BatchSession (a file group, always sequential); a `--strict` flag (aborts immediately instead of warning on slot overflow); 4 bundled plugins (RemoveBOM/MozJPEG/bmp2png/GroupMD5). `pydantic` is now optionally used for Session/plugin metadata type validation (falls back to standard dataclasses if not installed). Added a `tests/` pytest suite.
+- **v2.3:** Added directory (folder) input mode — a Job with `input_mode = "directory"` accepts a folder path instead of a list file as its FileList argument, and automatically builds the file list according to `recursive` (subfolder search) and `include` (glob-pattern filter) settings.

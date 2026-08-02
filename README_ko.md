@@ -13,10 +13,12 @@
 - 최초 1회 실행할 명령(pre), 대상 파일들에 반복 실행할 명령(command), 최종 1회 실행할 명령(post)를 각기 지정할 수 있습니다.
 
 ### 2.2 `TCBL` 대비 향상된 특징
-- 파일 처리를 멀티스레드(MultiThread)화하여 여러 파일을 동시 처리할 수 있습니다. `MP3` 인코딩, `PNG` 인코딩 등 프로세싱 부하가 큰 작업에 유리합니다.
+- 외부 CLI 도구 뿐 아니라 단일 파일을 처리하는 Python 프로그램을 플러그인으로 추가하여 사용할 수 있습니다. (`bmp2png`, `mozjpeg`, `group_md5`, `remove_bom` 의 4개 플러그인을 기본 제공합니다.)
+- recursive 처리 지원 - 특정 폴더 및 그 하위 폴더에 들어있는 파일을 처리할 수 있습니다.
+- 파일 처리를 멀티스레드(MultiThread)화하여 여러 파일을 동시 처리할 수 있습니다. 이는  `MP3` 인코딩, `PNG` 인코딩 등 프로세싱 부하가 큰 작업에 유리합니다.
 - 멀티스레드에 의해 파일이 비순차 처리되더라도, 화면 출력은 순차 출력을 유지합니다.
 - 멀티 프로세싱시 중간 파일명이 프로세스간 충돌하지 않도록 UUID4 기반의 임시ID 생성을 하여 활용할 수 있습니다.
-- `유니코드(Unicode)` 파일명, 경로명을 지원합니다. 외부 CLI 도구가 유니코드를 지원하지 않고 `ANSI` 코드만을 지원하더라도, 본 도구에서 자체적으로 경로명을 우회 처리하여 최종 출력으로 연결해줍니다.
+- `유니코드(Unicode)` 파일명, 경로명을 지원합니다. 외부 CLI 도구가 유니코드를 지원하지 않고 `ANSI` 코드만을 지원하더라도, 본 도구에서 자체적으로 경로명을 우회 처리하여 최종 출력으로 연결해 줍니다.
 - 배치 실행전에 원하는 파라미터를 수동으로 입력받을 수 있습니다.
 - 설정 파일이 포맷이 `INI`인 `TCBL`과 달리, 설정 파일 포맷이 `TOML`이어서 유니코드를 문제없이 처리합니다.
 
@@ -25,15 +27,19 @@
 ## 3. 프로그램 구성 및 사용법
 ### 3.1 요구사항
 - Python 3.11 이상 (`tomllib` 내장)
-- 외부 라이브러리 없음 (표준 라이브러리만 사용). 단, 아래는 선택 설치 시 자동으로 활용됩니다.
+- 외부 라이브러리 없이도 동작합니다(표준 라이브러리만 사용). 단, 아래는 선택 설치 시 자동으로 활용됩니다.
+  - `pydantic`: Session/플러그인 메타정보의 타입을 엄격하게 검증하는 데 사용 (없으면 표준 dataclass 기반의 느슨한 검증으로 자동 대체 — 안내 메시지 출력, 5장 참고)
   - `keyboard`: `pause = true`일 때 "아무 키나 누르면 종료" 대기에 사용 (없으면 Enter 키 대기로 자동 대체)
   - `wcwidth`: 화면에 표시되는 파일명/메시지의 폭 계산에 사용 (없으면 근사치 계산으로 자동 대체)
+- 개별 플러그인이 요구하는 패키지(예: MozJPEG의 `jpeglib`)는 별도입니다 — 자동 설치되지 않으며 수동 설치가 필요합니다 (5.7절 참고).
 - Windows 환경 (Unicode 경로 완전 지원)
 ### 3.2 파일 구성
 ```filelist
-tcbp.py           실행 엔진
-config.toml       작업 정의 파일 (기본값)
-tcbp.log          실행 로그 (log=true 시 자동 생성)
+tcbp.py             실행 엔진
+validate_config.py  config.toml 사전 검증 도구 (4.11절 참고)
+config.toml         작업 정의 파일 (기본값)
+plugin/              플러그인 폴더 (5장 참고)
+logs/                실행 로그 폴더 (log=true 시 자동 생성, 실행마다 파일 분리)
 ```
 ### 3.3 기본 사용법
 
@@ -101,6 +107,8 @@ C:\images\photo02.png
 C:\images\photo03.bmp
 ```
 
+목록 파일 대신 **폴더 경로를 직접** 넘겨 그 폴더 안의 파일들을 자동으로 찾아 처리하게 할 수도 있습니다 — 4.12절(폴더 입력 모드) 참고.
+
 ---
 
 ## 4. `config.toml` 구조 및 설정법
@@ -114,7 +122,7 @@ parallel     = false                    # 전체 기본값
 max_workers  = 4                        # 멀티스레드 병렬 처리 시 최대 worker 수
 output       = "{dir}/{base}_out{ext}"  # 출력 경로 규칙
 log          = false                    # 로그 파일 기록 여부
-log_file     = "tcbp.log"               # 로그 파일 경로
+log_file     = "logs/tcbp_{job}_{timestamp}.log"  # 로그 파일 경로 ({job}/{timestamp} 자리표시자 지원)
 pause        = false                    # 완료 후 키 입력 대기 여부
 stderr_quiet = false                    # 도구 STDERR 출력 억제 여부
 lang         = "ko"                     # "ko" | "en" — tcbp.py 출력 언어 (CLI --lang이 우선)
@@ -356,11 +364,14 @@ on_error = "stop"       # 첫 실패 즉시 중단
 ```toml
 [global]
 log      = true
-log_file = "tcbp.log"
+log_file = "logs/tcbp_{job}_{timestamp}.log"
 ```
 - `log = false`: 콘솔 출력만
 - `log = true`: 콘솔 + 파일 동시 기록
-- 로그 파일은 항상 **tcbp.py 와 같은 폴더**에 생성됩니다. (실행 위치 무관)
+- `log_file` 경로가 상대경로면 항상 **tcbp.py 와 같은 폴더** 기준으로 생성됩니다. (실행 위치 무관)
+- `log_file`에 `{job}`(작업 이름), `{timestamp}`(실행 시각, `YYYYMMDD_HHMMSS`) 자리표시자를 사용할 수 있어, 실행할 때마다 별도 파일로 분리되고 한 파일에 계속 쌓이지 않습니다.
+- 콘솔은 기존처럼 메시지만 표시하고(레벨 프리픽스 없음), 파일에는 `%(asctime)s [%(levelname)s] %(message)s` 형식으로 타임스탬프와 레벨이 함께 기록됩니다.
+- 별도의 실패 전용 로그 파일(`*_failed.log`)은 만들지 않으며, 같은 로그 파일 안에서 `[ERROR]` 레벨로 실패 건만 걸러볼 수 있습니다.
 - 로그에는 잡 헤더, 파일별 처리 결과, 오류 메시지(CMD + STDERR)가 기록됩니다.
 
 #### 긴급 오류 로그 (`tcbp_error.log`)
@@ -382,44 +393,162 @@ Line 297, Column 1
 
 오류 발생 시 콘솔창이 자동으로 유지되어 내용을 확인할 수 있습니다.
 
-### 4.11 설정 파일 자동 검증 (Config Validation)
-`config.toml`을 읽어들인 직후, 실행할 Job에 흔한 작성 실수가 없는지 자동으로 점검합니다. `config.toml`의 구조나 작성 방식은 전혀 바뀌지 않으며, 정상적으로 작성된 Job은 아무 메시지 없이 기존과 동일하게 실행됩니다.
+### 4.11 설정 파일 검증
+
+#### 4.11.1 tcbp.py 자체의 최소 방어
+tcbp.py는 Job을 resolve한 직후, `tool`/`output`/`commands` 중 하나라도 비어 있으면 즉시 중단합니다. 이는 오탈자를 진단하는 기능이 아니라, 빈 `{tool}`처럼 config 작성 실수가 알아보기 힘든 실행 오류(예: Windows에 실제로 존재하는 `convert.exe` 같은 엉뚱한 시스템 실행파일이 대신 실행되는 등)로 번지는 것을 막기 위한 최소한의 안전장치입니다.
+
+#### 4.11.2 사전 검증 도구 — `validate_config.py`
+오탈자·미사용 key·undefined placeholder처럼 config 작성을 도와주는 진단은 별도 도구인 `validate_config.py`가 전담합니다. tcbp.py가 실행 중에 자동으로 호출하지 않으므로, `config.toml`을 고친 뒤 batch를 돌리기 전에 수동으로(또는 CI에서) 실행하는 것을 권장합니다.
+
+```commandline
+python validate_config.py <config.toml> [--job JOB] [--sample <filelist>] [--lang ko|en]
+```
 
 검사 항목:
-- **필수 key 누락** — `tool`, `output`, `commands` 중 실제로 비어있는 항목이 있으면 오류로 판단해 실행을 중단합니다.
-- **예약어 오타** — `tool_pat`처럼 표준 key(`tool`, `output`, `pre` 등)와 철자가 비슷한 key를 쓰면 오타로 의심해 경고합니다.
-- **placeholder 오타** — `{basename}`처럼 어디에서도 채워지지 않는 placeholder를 쓰면 경고하고, 비슷한 이름의 실제 placeholder가 있으면 제안합니다.
-- **미사용 커스텀 key** — job에 정의했지만 `pre`/`commands`/`post`/`output` 어디에서도 `{key}` 형태로 쓰이지 않는 값은 정보로 알려줍니다.
+- **TOML 문법 오류** — 오류 라인·컬럼과 원문 코드 프레임을 함께 보여줍니다.
+- **필수 key 누락** — `tool`, `output`, `commands` 중 실제로 비어있는 항목.
+- **예약어 오타** — `tool_pat`처럼 표준 key와 철자가 비슷한 key.
+- **placeholder 오타** — 어디에서도 채워지지 않는 `{placeholder}`. 비슷한 이름의 실제 placeholder가 있으면 제안.
+- **미사용 커스텀 key** — job에 정의했지만 어디에서도 `{key}` 형태로 쓰이지 않는 값.
+- **`global.tools` 경로 유효성** — 등록된 tool 실행 파일이 실제로 존재하는지 전체 스윕.
+- **output이 input을 덮어쓸 위험** — output 템플릿이 input과 같은 파일을 가리킬 수 있는 경우 경고.
+- **타입 오탈자** — `params`의 `type`이 `"int"`가 아닌 값, `parallel`/`log`/`pause`/`stderr_quiet`/`recursive`가 bool이 아닌 값, `input_mode`가 `"list"`/`"directory"`가 아닌 값, `include`가 문자열 리스트가 아닌 경우 등.
+- **폴더 입력 모드 설정 오용** — `input_mode = "directory"`가 아닌 Job에 `recursive`/`include`가 설정된 경우 경고 (4.12절 참고).
+- **sample dry-run 검증** (`--sample` 지정 시) — 실제 파일 목록으로 placeholder 치환을 시험해, 실행 전에 포맷 오류를 잡아냅니다.
 
-오류(ERROR)가 있으면 실행을 중단하고, 경고(WARNING)·정보(INFO)는 알려주기만 하고 그대로 계속 진행합니다.
+`--job`을 생략하면 `config.toml`에 정의된 모든 Job을 한 번에 검사합니다. 오류(ERROR)가 하나라도 있으면 종료 코드 1을 반환하므로 CI나 배치 스크립트의 게이트로 사용할 수 있고, 경고(WARNING)·정보(INFO)만 있으면 종료 코드 0입니다.
 
+예시 출력:
 ```
-=== Config Validation Result ===
+--- global ---
+[WARNING] Tool 경로를 찾을 수 없습니다: gm -> C:/tools/gm.exe
 
-Job: ResizeImage
+--- ResizeImage ---
+[ERROR] 필수 Key 누락: tool (또는 global.tools 에 등록된 tool 이름이 필요합니다)
+[WARNING] 알 수 없는 Key: tool_pat
+        혹시 다음을 의미하셨습니까? tool
+[WARNING] 정의되지 않은 Placeholder: {basename}
+        혹시: {name}
+[INFO] 사용되지 않는 Key: quality
 
-[ERROR]
-- 필수 Key 누락: tool (또는 global.tools 에 등록된 tool 이름이 필요합니다)
-
-[WARNING]
-- 알 수 없는 Key: tool_pat
-  혹시 다음을 의미하셨습니까? tool
-- 정의되지 않은 Placeholder: {basename}
-  혹시: {name}
-
-[INFO]
-- 사용되지 않는 Key: quality
-
-총 오류 1개  총 경고 2개  총 정보 1개
+Job 1개 검증 — 총 오류 1개  총 경고 2개  총 정보 1개
 ```
+
+### 4.12 폴더(디렉토리) 입력 모드
+
+FileList 인자 자리에 목록 파일(list.txt) 대신 **폴더 경로를 직접** 넘겨, 그 폴더(선택적으로 하위 폴더까지) 안의 파일들을 TCBP가 알아서 찾아 처리하게 할 수 있습니다.
+
+```toml
+[jobs.Bmp2PngRecursive]
+plugin      = "bmp2png"
+input_mode  = "directory"   # 이 Job은 폴더 경로만 받는다 — list.txt를 주면 오류
+recursive   = true          # 하위 폴더까지 탐색
+include     = ["*.bmp"]     # 글롭 패턴 (생략 시 모든 파일)
+output      = "{dir}/{base}.png"
+```
+
+```commandline
+python tcbp.py Bmp2PngRecursive D:\Images
+```
+
+| 키 | 기본값 | 설명 |
+|---|---|---|
+| `input_mode` | `"list"` | `"list"`: FileList 인자는 목록 파일이어야 함 (기존 방식). `"directory"`: FileList 인자는 폴더여야 함. |
+| `recursive` | `false` | `input_mode = "directory"`일 때만 의미 있음. `true`면 하위 폴더까지 재귀 탐색. |
+| `include` | `[]` (전체) | `input_mode = "directory"`일 때만 의미 있음. 글롭 패턴 목록 (예: `["*.bmp"]`, `["*.jpg", "*.jpeg"]`). 여러 패턴에 매치되는 파일도 중복 없이 한 번만 포함됩니다. |
+
+세 키 모두 `[global]` 섹션에서 기본값을 지정하고 job에서 override할 수 있습니다 (다른 설정과 동일한 상속 규칙).
+
+**계약(contract) — `input_mode`와 실제 인자가 어긋나면 에러**: `input_mode`는 "이 Job에 어떤 종류의 FileList 인자가 와야 하는지"를 미리 선언하는 계약입니다. 실제로 넘어온 인자가 이 계약과 다르면(예: `input_mode="directory"`인데 목록 파일이 넘어옴, 또는 그 반대로 `input_mode` 기본값(`"list"`)인 Job에 폴더가 넘어옴) TCBP는 파일을 처리하지 않고 그 자리에서 명확한 에러로 즉시 중단합니다.
+
+Total Commander와 연동하는 방법(특히 `%P` 사용 시 주의사항)은 7.1절을 참고하세요.
 
 ---
 
-## 5. 새 Job 추가 방법
+## 5. 플러그인(Plugin) 시스템
+
+### 5.1 개요 — `tool` vs `plugin`
+외부 CLI 도구를 감싸는 `tool = "..."` 방식 대신, 파일 처리 로직을 파이썬 함수로 직접 작성해 Job에 연결할 수도 있습니다. 하나의 Job 안에서 `tool`과 `plugin`을 동시에 쓸 수는 없습니다.
+
+| | `tool = "..."` | `plugin = "..."` |
+|---|---|---|
+| 처리 로직 | 외부 CLI 실행 파일 (`subprocess`) | `./plugin/<이름>.py`의 파이썬 함수 |
+| 대상 | GraphicsMagick, oxipng 등 기존 실행 파일 | 파이썬으로 직접 구현하는 처리 |
+| `commands` 키 | 필수 | 사용 안 함 (있으면 경고) |
+
+플러그인의 API 사양(`FileSession`/`BatchSession`/`ExecResult`/`BatchResult`, `session.log()` 등)과 새 플러그인을 직접 작성하는 방법은 `plugin/plugin_guide_ko.md`(플러그인 제작 가이드)에서 상세히 다룹니다 — 이 장은 번들 플러그인을 **사용**하는 방법에 집중합니다.
+
+### 5.2 세션 타입 — FileSession / BatchSession
+| | FileSession | BatchSession |
+|---|---|---|
+| 처리 단위 | 파일 1개 | 파일 목록 전체 |
+| `parallel` | 지원 (`max_workers`만큼 동시 처리) | 무시 (항상 순차) |
+| `output` | 필수 | 생략 가능 (또는 `output = ""`) |
+| `run()` 반환 타입 | `ExecResult(success, message)` | `BatchResult(succeeded, failed)` |
+| 대표 예 | RemoveBOM, MozJPEG, bmp2png | GroupMD5 |
+
+### 5.3 config.toml에서 플러그인 Job 선언
+```toml
+[jobs.RemoveBOM]
+plugin                  = "remove_bom"     # ./plugin/remove_bom.py 로드
+output                  = "{dir}/{base}{ext}"
+allow_output_overwrite  = true             # output이 input을 덮어써도 되는 Job은 명시적으로 허용해야 함
+params = [
+    { key="backup", desc="원본을 .bak으로 백업", type="bool" },
+]
+```
+BatchSession Job은 `output`을 생략(또는 `output = ""`)할 수 있습니다 — GroupMD5처럼 파일 그룹 단위로 결과를 쓰는 경우입니다.
+
+### 5.4 번들 플러그인
+| Job 이름 | 세션 타입 | 설명 | 주요 params |
+|---|---|---|---|
+| `RemoveBOM` | FileSession | 텍스트 파일의 UTF-8 BOM 제거 | `backup`, `eachline` (bool) |
+| `MozJPEG` | FileSession | MozJPEG으로 JPEG 재압축/변환 | `quality` (int, 1-100) |
+| `bmp2png` | FileSession | BMP → 최적화된 PNG 변환 (oxipng) | `delete` (bool) |
+| `GroupMD5` | BatchSession | 파일명 유사도로 그룹핑해 그룹별 MD5(`.md5`) 목록 생성 | `bom` (bool), `chunk_size` (int, MB) |
+
+```commandline
+python tcbp.py RemoveBOM list.txt backup=true
+python tcbp.py MozJPEG   list.txt quality=90
+python tcbp.py bmp2png   list.txt delete=true
+python tcbp.py GroupMD5  list.txt bom=false chunk_size=8
+```
+
+### 5.5 플러그인 단독 CLI
+모든 플러그인은 tcbp 없이 파일 1개(GroupMD5는 목록 파일 1개)를 처리하는 단독 CLI 진입점을 갖습니다 — 플러그인 개발/디버깅용이며, 와일드카드·재귀 탐색·목록 파일을 이용한 배치 처리는 지원하지 않습니다.
+```commandline
+python plugin\remove_bom.py <input> <output> [backup=true] [eachline=true]
+python plugin\mozjpeg.py    <input> <output> [quality=90]
+python plugin\bmp2png.py    <input> <output> [delete=true] [oxipng_exe=...]
+python plugin\group_md5.py  <list_file> [bom=true] [chunk_size=8]
+```
+
+### 5.6 `--strict` 플래그
+FileSession 플러그인이 병렬(`parallel = true`) 모드에서 선언된 slot 개수(`notes_per_file`)를 벗어나 `log()`를 호출하면, 기본값은 콘솔 출력만 건너뛰고 로그 파일에 경고를 남기며, `--strict`를 지정하면 즉시 오류로 중단합니다.
+
+동작 원리와 플러그인 개발 시 권장 사용법은 `plugin/plugin_guide_ko.md`의 5.3~5.4절(병렬 모드 slot 예약 메커니즘 / `--strict` 플래그)을 참고하세요.
+
+### 5.7 플러그인 의존성
+플러그인이 필요로 하는 외부 패키지는 tcbp가 **자동 설치하지 않으므로**, 아래 표를 참고해 수동으로 `pip install`하세요.
+
+| 플러그인 | 필요 패키지 |
+|---|---|
+| `remove_bom` | 없음 (표준 라이브러리만) |
+| `mozjpeg` | `jpeglib`, `numpy`, `Pillow` |
+| `bmp2png` | `opencv-python`, `Pillow`, `numpy` |
+| `group_md5` | 없음 (표준 라이브러리만) |
+
+의존성 선언 방식과 `validate_config.py`가 이를 어떻게 다루는지는 `plugin/plugin_guide_ko.md`의 4.5절을 참고하세요.
+
+---
+
+## 6. 새 Job 추가 방법
 1. `config.toml`에 `[jobs.NewJobName]` 섹션 추가
 2. `tool`, `output`, `commands` 정의
 3. 파라미터가 필요하면 `{param_name}` 형태로 commands에 기술
 4. 실행 시 `key=value` 형태로 전달
+5. (권장) `python validate_config.py config.toml --job NewJobName` 으로 사전 점검 후 실제 배치 실행 (4.11절 참고)
 ```toml
 [jobs.Sharpen]
 desc        = "Sharpen images"
@@ -438,7 +567,7 @@ python tcbp.py Sharpen list.txt radius=3 sigma=1.5 quality=95
 
 ---
 
-## 6. Total Commander 연동
+## 7. Total Commander 연동
 - 토탈 커맨더의 버튼바, Start 메뉴 하위의 사용자 메뉴에서 다음과 같이 설정합니다.
 - 시작 경로는 특별한 의도가 없다면 공란으로 비웁니다. 그렇게 해야 토탈 커맨더 상의 현재 경로가 작업 경로가 됩니다.
 - `%UL` : TC가 생성하는 선택 파일 목록 경로 (list.txt 역할, UTF-8로 인코딩, 대상 파일리스트를 full-path로 담고 있음.) 
@@ -454,9 +583,33 @@ python tcbp.py Sharpen list.txt radius=3 sigma=1.5 quality=95
 파라미터: C:\path\TCBP\tcbp.py ResizeImages %UL size=1024
 ```
 
+### 7.1 폴더(디렉토리) 입력 Job 연동 — 토탈커맨더에서 `%P` 사용 시 주의사항
+
+⚠️주의: `input_mode = "directory"`로 선언된 Job(목록 파일 대신 폴더 자체를 입력받아 재귀 탐색하는 Job)을 TC 버튼에 연결할 때는, 선택한 파일 목록(`%UL`) 대신 현재 패널의 폴더 경로를 넘겨주는 `%P` 매크로**를 사용합니다. 이 때 **반드시 닫는 따옴표 바로 앞에 마침표(`.`)를 하나 추가해서 사용해야 합니다.**
+
+```
+파라미터: C:\path\TCBP\tcbp.py Bmp2PngRecursive "%P."
+```
+
+**해설**: `%P`는 관례상 경로 끝에 백슬래시(`\`)가 붙어서 치환됩니다 (예: `D:\Images\`). 이 상태로 Parameters 필드에 `"%P"`처럼 단순히 따옴표로만 감싸면, Windows 커맨드라인 인자 파싱 규칙상 **닫는 따옴표 바로 앞의 백슬래시가 그 따옴표를 이스케이프**해버려 인자가 의도한 위치에서 끝나지 않습니다. 그 결과 뒤에 와야 할 Job 이름이나 다른 파라미터까지 한 인자에 뒤섞여 들어가거나, 예상치 못한 오류가 발생할 수 있습니다. 이를 박기 위해 마침표(trailing dot)를 하나 찍어서 이스케이프를 회피할 수 있습니다. `"%P."`로 마침표를 찍게 되면 치환되는 경로명은 `D:\Images\.`가 되며, 이는 `D:\Images\`와 동일한 폴더를 가리키는 유효한 경로가 됩니다.
+
+| 작성 방식 | 결과 |
+|---|---|
+| `%P` (따옴표 없음) | ❌ 폴더 경로에 공백이 있으면 인자가 여러 개로 쪼개짐 |
+| `"%P"` (마침표 없이 따옴표만) | ❌ 트레일링 백슬래시가 닫는 따옴표를 이스케이프해 인자가 깨짐 |
+| `"%P."` (마침표 추가) | ✅ 정상 동작 |
+
+### 7.2 폴더(디렉토리) 입력 모드의 파일 리스트 생성 방식
+
+**정렬 로직**: 폴더 스캔 결과는 항상 이름순으로 정렬되어, 파일시스템이 반환하는 순서에 실행마다 좌우되지 않고 `{index}` placeholder나 병렬 모드의 화면 출력 순서가 재현 가능합니다. `recursive = true`일 때는 단순히 전체 경로 문자열을 한 번에 정렬하지 않고, **"폴더 자신의 파일을 먼저(이름순), 그다음 하위 폴더를 이름순으로(각 하위 폴더에도 같은 규칙을 재귀 적용)"** 순서로 처리합니다.
+
+만일 이렇게 하지 않고 절대경로 문자열 전체를 그대로 정렬하면, 하위 폴더 이름이 숫자일 때(예: `001`)일 때 현재 폴더내의 숫자 이름의 파일(예: `009.bmp`)과 비교되어 순서가 뒤섞일 수 있습니다. 루트에 `001/`, `009.bmp`~`012.bmp`가 있으면 `"001\013.bmp"`의 세 번째 글자 `1`이 `"009.bmp"`의 세 번째 글자 `9`보다 작아 `001` 폴더의 내용 전체가 루트의 `009.bmp`~`012.bmp`보다 먼저 오는 식으로, 현재 폴더 자신의 파일이 하위 폴더 사이에 끼어들어 직관에 어긋나는 결과가 나올 수 있습니다.
+
+**기존 기능과의 관계**: 폴더 입력은 내부적으로 (list.txt와 동일한) 파일 목록으로 변환된 뒤 기존 처리 엔진에 그대로 전달됩니다. 즉 tool 기반 Job, FileSession/BatchSession 플러그인, `parallel` 병렬 처리, placeholder 치환, 로깅 등 다른 모든 기능은 수정 없이 그대로 동작합니다.
+
 ---
-## 7. 테크니컬 노트 : Unicode 경로 처리 정책
-일부 외부 도구(gm.exe 등)는 ANSI 빌드이므로, 시스템 코드 페이지(cp949) 범위를 벗어나는 문자(일본어 등)가 경로나 파일명에 포함되면 파일을 열지 못하는 경우가 있습니다. TCBP는 `subprocess.run(cwd=unicode_dir)`로 작업 디렉토리(cwd)로 지정하고, 도구의 인수에는 파일명만 상대 경로로 전달하는 방식을 사용합니다. 이를 통해 ANSI 경로명만 지원하는 프로그램을 상대로도 유니코드 경로명의 파일을 이상없이 우회처리할 수 있습니다. 
+## 8. 테크니컬 노트 : Unicode 경로 처리 정책
+일부 외부 도구(gm.exe 등)는 ANSI 빌드이므로, 시스템 코드 페이지(cp949) 범위를 벗어나는 문자(일본어 등)가 경로나 파일명에 포함되면 파일을 열지 못하는 경우가 있습니다. TCBP는 `subprocess.run(cwd=unicode_dir)`로 작업 디렉토리(cwd)로 지정하고, 도구의 인수에는 파일명만 상대 경로로 전달하는 방식을 사용합니다. 이를 통해 ANSI 경로명만 지원하는 프로그램을 상대로도 유니코드 경로명의 파일을 이상없이 우회처리합니다.
 ```
 gm.exe convert -quality 95 "001.jpg" "001.png"
 (cwd = X:\publisher\双葉社\)
@@ -464,7 +617,7 @@ gm.exe convert -quality 95 "001.jpg" "001.png"
 - `CreateProcessW` 의 `lpCurrentDirectory` 파라미터로 전달되므로 Python에서 Unicode 디렉토리를 cwd로 설정 합니다.
 - 도구가 `fopen("001.jpg")` 를 호출하면 OS가 내부적으로 `cwd + 파일명` 으로 해석합니다.
 
-## 8. 테크니컬 노트 : TCBL → TCBP 이전 대응표
+## 9. 테크니컬 노트 : TCBL → TCBP 이전 대응표
 기존 TCBL 도구를 쓰던 분이 본 도구로 이전(migration)하고자 할 때, placeholder의 대응표입니다.
 
 | TCBL | TCBP |
@@ -481,11 +634,11 @@ gm.exe convert -quality 95 "001.jpg" "001.png"
 | `end=` | `post = [...]` |
 | `batch_preset.ini [Section]` | `config.toml [jobs.JobName]` |
 
-## 9. 테크니컬 노트 : `shell=True` / `shell=False` 차이와 내장 명령·외부 명령 기술 규칙
+## 10. 테크니컬 노트 : `shell=True` / `shell=False` 차이와 내장 명령·외부 명령 기술 규칙
 
 TCBP는 `pre` / `commands` / `post` 모든 명령을 **`shell=False`**로 `subprocess`를 실행합니다. 이 챕터는 그렇게 하는 이유와, `config.toml`에서 명령을 기술할 때 지켜야 할 규칙을 설명합니다.
 
-### 9.1 `subprocess`가 프로세스를 띄우는 두 가지 방식
+### 10.1 `subprocess`가 프로세스를 띄우는 두 가지 방식
 
 | 구분 | 실제로 실행되는 프로세스 | 명령 문자열의 운명 |
 |---|---|---|
@@ -505,9 +658,9 @@ subprocess.run(["gm.exe", "convert", "photo.jpg", "photo.png"], shell=False)
 - 인용부호(`"`) 처리 규칙이 cmd.exe 고유 규칙을 따르므로, 유니코드 경로·공백·특수문자가 섞이면 따옴표를 어떻게 감싸야 안전한지가 미묘해집니다.
 - 파일명 등 외부에서 들어온 문자열이 그대로 명령에 삽입되면 **명령 인젝션** 위험이 있습니다.
 
-`shell=False`는 cmd.exe를 거치지 않으므로 위 문제가 원천적으로 사라지고, 7장에서 설명한 유니코드 경로 우회가 인자를 그대로 전달한다는 전제 위에서 안정적으로 동작합니다. 이것이 TCBP가 모든 명령을 `shell=False`로 통일한 이유입니다.
+`shell=False`는 cmd.exe를 거치지 않으므로 위 문제가 원천적으로 사라지고, 8장에서 설명한 유니코드 경로 우회가 인자를 그대로 전달한다는 전제 위에서 안정적으로 동작합니다. 이것이 TCBP가 모든 명령을 `shell=False`로 통일한 이유입니다.
 
-### 9.2 셸 커맨드 내장 명령을 사용하고 싶다면
+### 10.2 셸 커맨드 내장 명령을 사용하고 싶다면
 
 `echo`, `del`, `copy`, `dir`, `cd`, `set` 등은 **실행 파일이 아니라 cmd.exe 내부에만 존재하는 내장 명령(builtin)** 입니다 (`echo.exe`, `del.exe` 같은 파일은 Windows에 없습니다). `shell=False`로 `"echo 안녕"`을 그대로 실행하면 OS가 `echo`라는 이름의 실행 파일을 찾으려 들지만, 그런 실행파일은 없으므로 `FileNotFoundError`를 내며 실패합니다. 
 
@@ -520,16 +673,19 @@ commands = [
 ]
 ```
 
-## 10. 버전 이력
+## 11. 버전 이력
 - **v1.0:** 초도 배포판
 - **v1.1:** 멀티 프로세싱에서 먼저 끝나는 결과를 먼저 출력하도록 수정 (기존에는 뒤에 시작한 파일은 먼저 끝나도 앞 파일 결과 출력할 때까지 출력을 보류했음)
 - **v1.2:** `output_rule` 키값을 `output`으로 이름 변경 (`{output}` placeholder와 일치성을 위해)
 - **v1.3:** 출력이 길어서 한 줄에 다 나오지 못하는 경우, 파일명을 중간 생략하여 표시
 - **v1.4:** `pre`/`post`가 `commands`와 동일하게 `shell=False` (CommandLineToArgvW 파싱)로 실행되도록 변경. `cmd.exe` 내장 명령은 예외 없이 `cmd /c`를 명시해야 하며(`config.toml` 전체 반영), pre/post 결과(STDOUT/STDERR)도 이제 로그 파일에 함께 기록됨. 그 결과 배너 등을 출력하기 위해 `cmd /c echo ----어쩌구저쩌구---` 로 명령을 추는 것을 너무 복잡해지므로, 메시지 출력용 `msg` 명령을 추가하였음.
 - **v1.5:** {output}을 참조하면서 실제로는 파일을 안 만드는 명령이 '성공'으로 카운트되는 문제(조용한 실패)를 '실패'로 카운트하도록 수정
-- **v1.6:** 멀티 스텝 명령에서 임시 파일이 필요할 때 파일명 충돌을 피하도록 `{taskid}`(배치 전체 공용) / `{itemid}`(파일 단위) placeholder 추가. 설명서 챕터7 Unicode 경로 처리 정책 설명을 실제 구현(상대 경로 모드)에 맞게 정리. 챕터9 테크니컬 노트 내용 정리.
+- **v1.6:** 멀티 스텝 명령에서 임시 파일이 필요할 때 파일명 충돌을 피하도록 `{taskid}`(배치 전체 공용) / `{itemid}`(파일 단위) placeholder 추가. 설명서 챕터8 Unicode 경로 처리 정책 설명을 실제 구현(상대 경로 모드)에 맞게 정리. 챕터10 테크니컬 노트 내용 정리.
 - **v1.7:** 화면 표시 파일명 길이 계산에 `wcwidth`를 우선 사용하도록 개선(미설치 시 기존 방식으로 대체). `config.toml` 로드 직후 Job 정의를 자동 검증하는 기능 추가(TOML 문법 오류 메시지 개선, 필수 key 누락·예약어 오타·placeholder 오타·미사용 key 진단).
 - **v1.8:** tcbp.py 자신이 출력하는 문구(오류·경고·로그·`--help`)를 한국어/영어 이중 언어로 지원. 실행시 옵션을 `--lang ko` 또는 `--lang en`로 지정하거나, `config.toml`의 `[global] lang`으로 선택 (기본값 `ko`). `config.toml`에 사용자가 작성한 내용(`desc`, `msg`)은 번역 대상에서 제외.
 - **v1.9:** 섹션 구분 주석 추가 및 일부 함수 위치 재배치 (코드 수정은 없음)
-
-
+- **v2.0:** 클래스 리팩토링, config.toml 설정파일 검증용 도구인 validate_config.py 신규 작성
+- **v2.1:** 작업별 로그 분리
+- **v2.2:** 플러그인(Plugin) 시스템 추가 — 외부 CLI 도구 대신 파이썬 함수로 파일을 처리하는 `plugin = "..."` Job 타입. FileSession(파일 1개, 병렬 가능)/BatchSession(파일 그룹, 항상 순차) 두 세션 타입, `--strict` 플래그(slot 초과 시 경고 대신 즉시 중단), 번들 플러그인 4종(RemoveBOM/MozJPEG/bmp2png/GroupMD5) 추가. Session/플러그인 메타정보 타입 검증에 `pydantic`을 선택적으로 사용(미설치 시 표준 dataclass 폴백). `tests/` pytest 스위트 추가.
+- **v2.3:** 폴더(디렉토리) 입력 모드 추가 — `input_mode = "directory"` Job은 FileList 인자로 목록 파일 대신 폴더 경로를 받아, `recursive`(하위 폴더 탐색)와 `include`(글롭 패턴 필터) 설정에 따라 파일 목록을 자동 생성한다.
+- **v2.4:** thread_safe 메타 정보를 플러그인에 추가, 플러그인 측에서는 호출시의 스레드 모드를 재확인, validate_config.py에도 검증루틴 추가. 디자인 가이드라인 보완.

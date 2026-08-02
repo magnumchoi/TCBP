@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+markers = [
+    "cli: 실제 standalone CLI를 subprocess로 구동하는 테스트 (느림)",
+    "integration: tcbp.py/validate_config.py 자체를 구동하는 end-to-end 테스트 (느림)",
+]
+
+# Pillow/numpy는 test_plugin_cli_golden.py의 이미지 RMSE 비교에만 쓰이는 tests 전용
+# dev 의존성이다 — tcbp.py 코어 의존성(3.8/3.8.1의 pydantic-with-fallback)과는 무관하다.

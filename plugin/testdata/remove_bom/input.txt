@@ -1,0 +1,2 @@
+﻿hello golden test
+second line
