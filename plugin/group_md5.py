@@ -3,6 +3,7 @@
 [ko]
 [플러그인 개요]
 이름: group_md5.py
+버전: v1.1
 타입: TCBP BatchSession 플러그인
 목적: 파일들을 이름 유사도로 그룹핑해 그룹별 MD5 목록(.md5) 파일 생성
 설명: TCBP를 통해 run(session)으로 호출되거나, tcbp 없이 단독 CLI로 실행할 수 있다.
@@ -19,6 +20,7 @@
 [en]
 [Plugin Overview]
 Name: group_md5.py
+Version: v1.1
 Type: TCBP BatchSession plugin
 Purpose: Group files by filename similarity and generate a grouped MD5 (.md5) list file per group
 Description: Can be called via run(session) through TCBP, or run standalone (without tcbp).
@@ -49,6 +51,15 @@ from tcbp import plugin, BatchSession, BatchResult, parse_params, _to_bool, _tru
 
 TRUNCATE_LENGTH = 60
 PROGRESS_UPDATE_INTERVAL = 1.5  # [ko] 진행률 콜백 최소 호출 간격(초) — 오리지널 refresh_per_second=0.67과 동일 / [en] minimum interval (seconds) between progress callbacks — matches the original refresh_per_second=0.67
+
+# [ko] 가변 식별자(part/disc/cd/vol/ep/track + 번호)의 접두어 데이터.
+#      정규식은 코드에서 동적으로 생성되므로, 새 접두어는 이 목록에만 추가하면 된다.
+# [en] Prefix data for variable identifiers (part/disc/cd/vol/ep/track + number).
+#      The regex is generated dynamically from this list, so adding a new prefix
+#      only requires editing this set.
+VARIABLE_PREFIXES = {"DISC", "PART", "CD", "VOL", "EP", "TRACK"}
+VARIABLE_TOKEN = "<VARIABLE>"
+_VARIABLE_TOKEN_WEIGHT = 0.1  # [ko] 가변/숫자 토큰은 그룹 식별에 거의 기여하지 않도록 낮은 가중치 부여 / [en] low weight so variable/numeric tokens barely influence grouping
 
 # [ko] 그룹핑/해시 핵심 로직 (GroupMD5.py에서 벤더링)
 # [en] Core grouping/hashing logic (vendored from GroupMD5.py)
@@ -124,15 +135,56 @@ def _get_part_num_from_input_name(input_name: str) -> SimpleNamespace:
     return SimpleNamespace(pn_full=f"{letters}-{numbers}", pn_letters=letters, pn_numbers=numbers)
 
 
+def _split_alpha_digit_boundary(token: str) -> list[str]:
+    """
+    [ko]
+    문자↔숫자 경계에서만 분리한다("aaa001" -> ["aaa","001"], "part12" -> ["part","12"]).
+    구분 문자(하이픈 등)가 letter/digit 사이에 끼어 있으면 분리하지 않는다
+    ("ABC-1234"는 그대로 유지되어 FC2-PPV/품번 패턴 가중치 로직이 깨지지 않는다).
+
+    [en]
+    Splits only at letter<->digit boundaries ("aaa001" -> ["aaa","001"],
+    "part12" -> ["part","12"]). A non-alnum character (e.g. a hyphen) sitting
+    between the letter and digit prevents the split ("ABC-1234" stays intact so
+    the FC2-PPV/part-number weighting logic downstream keeps working).
+    """
+    if not token:
+        return []
+
+    def kind(ch: str) -> str:
+        if ch.isdigit():
+            return "digit"
+        if ch.isalpha():
+            return "alpha"
+        return "other"
+
+    parts: list[str] = []
+    cur = [token[0]]
+    prev_kind = kind(token[0])
+    for ch in token[1:]:
+        cur_kind = kind(ch)
+        if {prev_kind, cur_kind} == {"alpha", "digit"}:
+            parts.append("".join(cur))
+            cur = [ch]
+        else:
+            cur.append(ch)
+        prev_kind = cur_kind
+    parts.append("".join(cur))
+    return parts
+
+
 def _tokenize_stem(stem: str) -> list[str]:
     """
     [ko]
     파일명 stem을 토큰으로 분해한다. 구분자: 공백/콤마/언더바.
     (), [], {} 묶음은 하나의 토큰으로 취급. 하이픈(-)은 분리하지 않는다.
+    묶음 밖의 연속 문자열은 문자/숫자 경계에서 추가로 분리된다(_split_alpha_digit_boundary).
 
     [en]
     Breaks a filename stem into tokens. Delimiters: whitespace/comma/underscore.
     A (), [], or {} group is treated as a single token. Hyphens (-) are not split.
+    Runs outside of a bracket group are further split at letter/digit boundaries
+    (_split_alpha_digit_boundary).
     """
     s = stem
     tokens: list[str] = []
@@ -144,7 +196,7 @@ def _tokenize_stem(stem: str) -> list[str]:
         if buf:
             token = "".join(buf).strip()
             if token:
-                tokens.append(token)
+                tokens.extend(_split_alpha_digit_boundary(token))
             buf.clear()
 
     pairs = {"(": ")", "[": "]", "{": "}"}
@@ -180,6 +232,75 @@ def _tokenize_stem(stem: str) -> list[str]:
     return tokens
 
 
+def _find_variable_spans(tokens: list[str]) -> list[tuple[int, int]]:
+    """
+    [ko]
+    토큰 목록에서 가변 식별자(Variable Segment) 구간을 찾아 (시작, 끝) 인덱스 쌍으로
+    반환한다. VARIABLE_PREFIXES 접두어 + 짧은 영숫자 접미어의 2토큰 시퀀스
+    (예: ["DISC","1"], ["PART","01"], ["DISC","A"])와, 분리되지 않고 붙어 있는
+    단일 토큰(예: "DISC1") 두 형태를 모두 인식한다. 정규식은 VARIABLE_PREFIXES에서
+    매 호출마다 동적으로 생성되므로, 접두어 추가는 그 목록만 수정하면 된다.
+
+    [en]
+    Scans the token list for Variable Segments and returns them as (start, end)
+    index pairs. Recognizes both a 2-token sequence of a VARIABLE_PREFIXES word
+    followed by a short alphanumeric suffix (e.g. ["DISC","1"], ["PART","01"],
+    ["DISC","A"]) and a single fused token (e.g. "DISC1"). The regex is built
+    dynamically from VARIABLE_PREFIXES on each call, so adding a prefix only
+    requires editing that set.
+    """
+    prefix_alt = "|".join(re.escape(p) for p in sorted(VARIABLE_PREFIXES, key=len, reverse=True))
+    prefix_re = re.compile(rf"^(?:{prefix_alt})$", re.IGNORECASE)
+    fused_re = re.compile(rf"^(?:{prefix_alt})[-_]?[A-Za-z0-9]{{1,4}}$", re.IGNORECASE)
+    suffix_re = re.compile(r"^[A-Za-z0-9]{1,4}$")
+
+    spans: list[tuple[int, int]] = []
+    i = 0
+    n = len(tokens)
+    while i < n:
+        if i + 1 < n and prefix_re.match(tokens[i]) and suffix_re.match(tokens[i + 1]):
+            spans.append((i, i + 2))
+            i += 2
+            continue
+        if fused_re.match(tokens[i]):
+            spans.append((i, i + 1))
+            i += 1
+            continue
+        i += 1
+    return spans
+
+
+def _variable_segment_indices(tokens: list[str]) -> set[int]:
+    """[ko] 가변 구간에 속한 토큰 인덱스 집합. [en] Set of token indices belonging to Variable Segments."""
+    indices: set[int] = set()
+    for start, end in _find_variable_spans(tokens):
+        indices.update(range(start, end))
+    return indices
+
+
+def _normalize_variable_tokens(tokens: list[str]) -> list[str]:
+    """
+    [ko] 가변 구간을 단일 VARIABLE_TOKEN으로 치환한 토큰 시퀀스를 반환한다
+         (유사도 계산은 원본이 아닌 이 정규화된 시퀀스를 기준으로 수행한다).
+    [en] Returns the token sequence with Variable Segments collapsed into a
+         single VARIABLE_TOKEN (similarity is computed against this normalized
+         sequence, not the original tokens).
+    """
+    spans = _find_variable_spans(tokens)
+    span_start_to_end = dict(spans)
+    out: list[str] = []
+    i = 0
+    n = len(tokens)
+    while i < n:
+        if i in span_start_to_end:
+            out.append(VARIABLE_TOKEN)
+            i = span_start_to_end[i]
+        else:
+            out.append(tokens[i])
+            i += 1
+    return out
+
+
 def _calculate_weighted_similarity(tokens1: list[str], tokens2: list[str],
                                     similarity_threshold: float = 0.7) -> tuple[bool, float]:
     """
@@ -190,6 +311,14 @@ def _calculate_weighted_similarity(tokens1: list[str], tokens2: list[str],
         return False, 0.0
 
     def get_token_weight(token: str) -> float:
+        # [ko] VARIABLE_TOKEN(가변 구간)과 순수 숫자 토큰(예: 연번 "001")은 파일 식별에
+        #      거의 기여하지 않는 가변 정보이므로, 유사도 판정이 이들에 좌우되지 않도록
+        #      고정된 낮은 가중치를 준다 (요구사항 3: 공통 토큰 비율을 적극 활용).
+        # [en] VARIABLE_TOKEN and pure-numeric tokens (e.g. a sequence number "001")
+        #      carry little identifying information, so they get a fixed low weight
+        #      so the match ratio is driven by the meaningful common tokens instead.
+        if token == VARIABLE_TOKEN or token.isdigit():
+            return _VARIABLE_TOKEN_WEIGHT
         base_weight = len(token) ** 0.7
         if token.startswith("FC2-PPV-"):
             return base_weight * 2.0
@@ -246,10 +375,13 @@ def _remove_tokens_by_index(orig: str, tokens: list, remove_idx: set) -> str:
     def flush():
         nonlocal t_idx
         if buf:
-            if t_idx not in remove_idx:
-                out.extend(buf)
+            # [ko] _tokenize_stem()과 동일한 문자/숫자 경계 분리를 적용해 인덱스를 맞춘다
+            # [en] apply the same letter/digit-boundary split as _tokenize_stem() so indices line up
+            for part in _split_alpha_digit_boundary("".join(buf)):
+                if t_idx not in remove_idx:
+                    out.append(part)
+                t_idx += 1
             buf.clear()
-            t_idx += 1
 
     while i < N:
         ch = s[i]
@@ -299,7 +431,20 @@ def group_files_by_pattern(file_paths: list[str]) -> dict[str, list[str]]:
     for dir_path, files in path_groups.items():
         if not files:
             continue
-        entries = [{"path": fp, "stem": Path(fp).stem, "tokens": _tokenize_stem(Path(fp).stem)} for fp in files]
+        entries = []
+        for fp in files:
+            stem = Path(fp).stem
+            raw_tokens = _tokenize_stem(stem)
+            entries.append({
+                "path": fp,
+                "stem": stem,
+                "tokens": raw_tokens,
+                # [ko] 유사도 계산은 정규화된(가변 구간이 VARIABLE_TOKEN으로 치환된) 토큰
+                #      시퀀스를 기준으로 한다 (요구사항 7)
+                # [en] similarity is computed against the normalized token sequence
+                #      (Variable Segments collapsed to VARIABLE_TOKEN) (requirement 7)
+                "norm_tokens": _normalize_variable_tokens(raw_tokens),
+            })
         N = len(entries)
         assigned: set[int] = set()
         dir_groups: dict[str, list[str]] = {}
@@ -308,11 +453,11 @@ def group_files_by_pattern(file_paths: list[str]) -> dict[str, list[str]]:
             if i in assigned:
                 continue
             group = [i]
-            ref_tokens = entries[i]["tokens"]
+            ref_tokens = entries[i]["norm_tokens"]
             for j in range(i + 1, N):
                 if j in assigned:
                     continue
-                is_similar, _score = _calculate_weighted_similarity(ref_tokens, entries[j]["tokens"])
+                is_similar, _score = _calculate_weighted_similarity(ref_tokens, entries[j]["norm_tokens"])
                 if is_similar:
                     group.append(j)
 
@@ -323,7 +468,11 @@ def group_files_by_pattern(file_paths: list[str]) -> dict[str, list[str]]:
             must_keep = {tok for tok, cnt in token_counter.items() if cnt == len(group_tokens)}
             rep_stem = entries[group_idxs[0]]["stem"]
             rep_tokens = entries[group_idxs[0]]["tokens"]
-            remove_idx = {i for i, t in enumerate(rep_tokens) if t not in must_keep}
+            # [ko] 가변 구간(Variable Segment)은 모든 멤버에 공통으로 존재하더라도
+            #      그룹명에서 항상 제거한다 (요구사항 8)
+            # [en] Variable Segments are always stripped from the group name even if
+            #      common to every member (requirement 8)
+            remove_idx = {i for i, t in enumerate(rep_tokens) if t not in must_keep} | _variable_segment_indices(rep_tokens)
             group_name = _remove_tokens_by_index(rep_stem, rep_tokens, remove_idx)
             group_name = re.sub(r"\s+", " ", group_name).strip() or rep_stem
             dir_groups.setdefault(group_name, [])

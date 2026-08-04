@@ -689,3 +689,4 @@ commands = [
 - **v2.2:** 플러그인(Plugin) 시스템 추가 — 외부 CLI 도구 대신 파이썬 함수로 파일을 처리하는 `plugin = "..."` Job 타입. FileSession(파일 1개, 병렬 가능)/BatchSession(파일 그룹, 항상 순차) 두 세션 타입, `--strict` 플래그(slot 초과 시 경고 대신 즉시 중단), 번들 플러그인 4종(RemoveBOM/MozJPEG/bmp2png/GroupMD5) 추가. Session/플러그인 메타정보 타입 검증에 `pydantic`을 선택적으로 사용(미설치 시 표준 dataclass 폴백). `tests/` pytest 스위트 추가.
 - **v2.3:** 폴더(디렉토리) 입력 모드 추가 — `input_mode = "directory"` Job은 FileList 인자로 목록 파일 대신 폴더 경로를 받아, `recursive`(하위 폴더 탐색)와 `include`(글롭 패턴 필터) 설정에 따라 파일 목록을 자동 생성한다.
 - **v2.4:** thread_safe 메타 정보를 플러그인에 추가, 플러그인 측에서는 호출시의 스레드 모드를 재확인, validate_config.py에도 검증루틴 추가. 디자인 가이드라인 보완.
+- **v2.41:** 번들 플러그인 group_md5의 그룹핑 알고리즘 개선 (플러그인 버전 v1.0 -> v1.1)

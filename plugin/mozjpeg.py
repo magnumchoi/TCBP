@@ -3,6 +3,7 @@
 [ko]
 [플러그인 개요]
 이름: mozjpeg.py
+버전: v1.0
 타입: TCBP FileSession 플러그인
 목적: MozJPEG을 사용한 JPEG 재압축/변환
 설명: TCBP를 통해 run(session)으로 호출되거나, tcbp 없이 단독 CLI로 파일 1개를 처리할 수 있다.
@@ -26,6 +27,7 @@
 [en]
 [Plugin Overview]
 Name: mozjpeg.py
+Version: v1.0
 Type: TCBP FileSession plugin
 Purpose: Recompress/convert images to JPEG using MozJPEG
 Description: Can be called via run(session) through TCBP, or run standalone (without tcbp) on a single file.

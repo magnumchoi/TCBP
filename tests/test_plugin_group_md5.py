@@ -88,6 +88,101 @@ def test_run_batch_session_returns_batch_result(tmp_path):
     assert str(f1) in result.succeeded
 
 
+# [ko] unit: 토큰화 / 가변 구간(Variable Segment) 정규화
+# [en] unit: tokenization / Variable Segment normalization
+
+@pytest.mark.parametrize("stem, expected", [
+    ("AAA001", ["AAA", "001"]),
+    ("PART12", ["PART", "12"]),
+    ("DISC_A", ["DISC", "A"]),
+])
+def test_tokenize_stem_splits_letter_digit_boundary(stem, expected):
+    assert group_md5._tokenize_stem(stem) == expected
+
+
+def test_tokenize_stem_keeps_hyphenated_part_codes_intact():
+    # [ko] "ABC-1234"는 letter/digit 사이에 하이픈이 끼어 있으므로 분리되지 않아야 한다
+    # [en] "ABC-1234" must not split — a hyphen sits between the letter and digit
+    assert group_md5._tokenize_stem("ABC-1234 Movie") == ["ABC-1234", "Movie"]
+
+
+@pytest.mark.parametrize("tokens, expected", [
+    (["DISC1"], ["<VARIABLE>"]),
+    (["DISC", "1"], ["<VARIABLE>"]),
+    (["DISC", "A"], ["<VARIABLE>"]),
+    (["PART", "01"], ["<VARIABLE>"]),
+])
+def test_normalize_variable_tokens(tokens, expected):
+    assert group_md5._normalize_variable_tokens(tokens) == expected
+
+
+def test_normalize_variable_tokens_preserves_non_variable_tokens():
+    assert group_md5._normalize_variable_tokens(["영화", "제목", "PART", "1"]) == ["영화", "제목", "<VARIABLE>"]
+
+
+# [ko] unit: group_files_by_pattern() 그룹핑 요구사항 사례 (요구사항 문서 10)
+# [en] unit: group_files_by_pattern() grouping cases required by the spec doc (doc section 10)
+
+def test_numbered_sequence_files_are_grouped_and_named_without_numbers():
+    files = [r"C:\dir\AAA001.jpg", r"C:\dir\AAA002.jpg", r"C:\dir\AAA003.jpg",
+              r"C:\dir\BBB001.jpg", r"C:\dir\BBB002.jpg", r"C:\dir\BBB003.jpg"]
+    groups = group_md5.group_files_by_pattern(files)
+    patterns = {key.split("|", 1)[1]: paths for key, paths in groups.items()}
+    assert set(patterns) == {"AAA", "BBB"}
+    assert len(patterns["AAA"]) == 3
+    assert len(patterns["BBB"]) == 3
+
+
+def test_part_prefixed_files_group_with_bare_title():
+    files = [r"C:\dir\블라블라 영화 제목.jpg", r"C:\dir\블라블라 영화 제목 PART1.mp4",
+              r"C:\dir\블라블라 영화 제목 PART2.mp4"]
+    groups = group_md5.group_files_by_pattern(files)
+    assert len(groups) == 1
+    (key, paths), = groups.items()
+    assert key.split("|", 1)[1] == "블라블라 영화 제목"
+    assert len(paths) == 3
+
+
+def test_disc_underscore_suffix_files_group_with_bare_title():
+    files = [r"C:\dir\중얼중얼중얼 만화 제목.jpg", r"C:\dir\중얼중얼중얼 만화 제목 disc_A.jpg",
+              r"C:\dir\중얼중얼중얼 만화 제목 disc_B.jpg"]
+    groups = group_md5.group_files_by_pattern(files)
+    assert len(groups) == 1
+    (key, paths), = groups.items()
+    assert key.split("|", 1)[1] == "중얼중얼중얼 만화 제목"
+    assert len(paths) == 3
+
+
+def test_variable_segment_stripped_even_with_surrounding_bracket_tokens():
+    files = [r"C:\dir\블라블라 영화 제목 [제작사] 품번.jpg",
+              r"C:\dir\블라블라 영화 제목 DISC1 [제작사] 품번.mp4",
+              r"C:\dir\블라블라 영화 제목 DISC2 [제작사] 품번.mp4"]
+    groups = group_md5.group_files_by_pattern(files)
+    assert len(groups) == 1
+    (key, paths), = groups.items()
+    assert key.split("|", 1)[1] == "블라블라 영화 제목 [제작사] 품번"
+    assert len(paths) == 3
+
+
+# [ko] unit: _process() 종단 간 — 그룹명이 실제 .md5 파일명으로 이어지는지 확인
+# [en] unit: _process() end-to-end — verifies the group name flows through to the actual .md5 filename
+
+def test_process_writes_md5_named_after_group_with_variable_segment_stripped(tmp_path):
+    f1 = tmp_path / "블라블라 영화 제목.jpg"
+    f2 = tmp_path / "블라블라 영화 제목 PART1.mp4"
+    f3 = tmp_path / "블라블라 영화 제목 PART2.mp4"
+    for f in (f1, f2, f3):
+        _write(f, str(f))
+
+    result = group_md5._process([str(f1), str(f2), str(f3)], {"bom": False, "chunk_size": 8},
+                                 log_fn=lambda t: None)
+
+    assert sorted(result.succeeded) == sorted(str(f) for f in (f1, f2, f3))
+    md5_files = list(tmp_path.glob("*.md5"))
+    assert len(md5_files) == 1
+    assert md5_files[0].name == "블라블라 영화 제목.md5"
+
+
 # [ko] cli: 단독 CLI를 subprocess로 구동 (4.5)
 # [en] cli: driving the standalone CLI via subprocess (4.5)
 

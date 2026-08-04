@@ -3,6 +3,7 @@
 [ko]
 [플러그인 개요]
 이름: remove_bom.py
+버전: v1.0
 타입: TCBP FileSession 플러그인
 목적: 텍스트 파일의 UTF-8 BOM(Byte Order Mark) 제거
 설명: TCBP를 통해 run(session)으로 호출되거나, tcbp 없이 단독 CLI로 파일 1개를 처리할 수 있다.
@@ -21,6 +22,7 @@
 [en]
 [Plugin Overview]
 Name: remove_bom.py
+Version: v1.0
 Type: TCBP FileSession plugin
 Purpose: Remove the UTF-8 BOM (Byte Order Mark) from text files
 Description: Can be called via run(session) through TCBP, or run standalone (without tcbp) on a single file.

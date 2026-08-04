@@ -3,6 +3,7 @@
 [ko]
 [플러그인 개요]
 이름: bmp2png.py
+버전: v1.0
 타입: TCBP FileSession 플러그인
 목적: BMP를 최적 압축된 PNG로 변환
 설명: 1단계로 BMP를 PNG로 변환하고, 2단계로 oxipng로 최적화하여 파일 크기를 최소화한다.
@@ -20,6 +21,7 @@
 [en]
 [Plugin Overview]
 Name: bmp2png.py
+Version: v1.0
 Type: TCBP FileSession plugin
 Purpose: Convert BMP to an optimally compressed PNG
 Description: Step 1 converts BMP to PNG; step 2 runs oxipng to optimize it and minimize file size.
