@@ -612,7 +612,7 @@ def _process(filelist: list[str], params: dict, log_fn: Callable[[str], None]) -
 
 @plugin(
     name="group_md5",
-    version="1.0",
+    version="1.1",
     author="Magnum Choi",
     session_type="batch",
     requirements=[],
