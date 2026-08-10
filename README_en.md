@@ -1,4 +1,4 @@
-# TCBP — Total Commander Batch Python
+ TCBP — Total Commander Batch Python
 [TOC]
 ## 1. Overview
 This tool is a Python re-implementation of similar functionality, inspired by [TCBL (Total Commander Batch Builder & Launcher)](https://totalcmd.net/plugring/TCBL_1.02.html).
@@ -762,5 +762,9 @@ The actual value types (`int`/`bool`/`str`) inside the context are never touched
 - **v2.3:** Added directory (folder) input mode — a Job with `input_mode = "directory"` accepts a folder path instead of a list file as its FileList argument, and automatically builds the file list according to `recursive` (subfolder search) and `include` (glob-pattern filter) settings.
 - **v2.4:** Added `thread_safe` metadata to plugins; plugins now re-confirm the calling thread mode themselves; added a corresponding validation routine to `validate_config.py`. Design guideline improvements.
 - **v2.41:** Improved the grouping algorithm of the bundled `group_md5` plugin (plugin version v1.0 -> v1.1).
-- **v2.5:** Added `preset` (a label+value list) to `params` entries — replaces free-text input with an arrow-key selection UI, implemented with ANSI + keyboard input only, no questionary (section 4.2.2). A `default` outside the preset's values is a config error; CLI-supplied values also have their preset range validated. Environments without TTY/ANSI support fall back to numbered selection automatically. The final parameter confirmation screen right before execution only appears when the user had to enter a value manually (an existing Job fully supplied via CLI sees no behavior change). To mitigate confusion when a preset's value differs from the label the user picked, the final confirmation screen now pairs the picked label with the value, and a `{key}_label` placeholder is generated automatically for use in `pre`/`post` messages, etc.
-- **v2.51:** Added `{key.label}` / `{key.value}` dot-notation syntactic sugar for the `{key}_label` placeholder (section 11) — a text-preprocessing rewrite before `format_map()`, not real attribute access, and fully backward compatible with the existing flat name.
+- **v2.5:** Added `preset` (a label+value list) declaration to `params` entries
+  - Provides an arrow-key selection UI in place of free-text input, implemented with ANSI escapes + keyboard input only, no questionary (section 4.2.2).
+  - A `default` outside the preset's value list is a config error; CLI-supplied values also have their preset range validated.
+  - Environments without TTY/ANSI support automatically fall back to numbered selection.
+  - The final parameter confirmation screen right before execution appears only when the user had to enter a value manually (an existing Job fully supplied via CLI sees no behavior change).
+  - To mitigate confusion when a preset's value differs from the label the user picked, the final confirmation screen now pairs the picked label with the value, and the `{key.label}` / `{key.value}` placeholders (section 11) are available for use in `pre`/`post` messages, etc.
