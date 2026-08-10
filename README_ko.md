@@ -19,7 +19,8 @@
 - 멀티스레드에 의해 파일이 비순차 처리되더라도, 화면 출력은 순차 출력을 유지합니다.
 - 멀티 프로세싱시 중간 파일명이 프로세스간 충돌하지 않도록 UUID4 기반의 임시ID 생성을 하여 활용할 수 있습니다.
 - `유니코드(Unicode)` 파일명, 경로명을 지원합니다. 외부 CLI 도구가 유니코드를 지원하지 않고 `ANSI` 코드만을 지원하더라도, 본 도구에서 자체적으로 경로명을 우회 처리하여 최종 출력으로 연결해 줍니다.
-- 배치 실행전에 원하는 파라미터를 수동으로 입력받을 수 있습니다.
+- 배치 실행전에 원하는 파라미터를 수동으로 입력받을 수 있습니다. (이 기능은 또 다른 토탈 커맨더 확장도구인 AskParam을 대체할 수 있습니다.)
+- 사전에 정해진 파라미터값을 안에서 사용자가 간편하게 커서키로 세팅을 고를 수 있는 기능을 제공합니다.
 - 설정 파일이 포맷이 `INI`인 `TCBL`과 달리, 설정 파일 포맷이 `TOML`이어서 유니코드를 문제없이 처리합니다.
 
 ---
@@ -27,12 +28,14 @@
 ## 3. 프로그램 구성 및 사용법
 ### 3.1 요구사항
 - Python 3.11 이상 (`tomllib` 내장)
-- 외부 라이브러리 없이도 동작합니다(표준 라이브러리만 사용). 단, 아래는 선택 설치 시 자동으로 활용됩니다.
+- 표준 라이브러리만 사용하여 별도의 추가 패키지 설치가 필요없습니다.
+- 단 아래의 패키지는 선택적으로 추가 설치할 수 있습니다. 설치하지 않더라도 폴백으로 동작합니다.
   - `pydantic`: Session/플러그인 메타정보의 타입을 엄격하게 검증하는 데 사용 (없으면 표준 dataclass 기반의 느슨한 검증으로 자동 대체 — 안내 메시지 출력, 5장 참고)
   - `keyboard`: `pause = true`일 때 "아무 키나 누르면 종료" 대기에 사용 (없으면 Enter 키 대기로 자동 대체)
   - `wcwidth`: 화면에 표시되는 파일명/메시지의 폭 계산에 사용 (없으면 근사치 계산으로 자동 대체)
-- 개별 플러그인이 요구하는 패키지(예: MozJPEG의 `jpeglib`)는 별도입니다 — 자동 설치되지 않으며 수동 설치가 필요합니다 (5.7절 참고).
+- 개별 플러그인이 요구하는 패키지(예: MozJPEG의 `jpeglib`)는 별도로 수동 설치해야 합니다. (5.7절 참고).
 - Windows 환경 (Unicode 경로 완전 지원)
+
 ### 3.2 파일 구성
 ```filelist
 tcbp.py             실행 엔진
@@ -41,16 +44,20 @@ config.toml         작업 정의 파일 (기본값)
 plugin/              플러그인 폴더 (5장 참고)
 logs/                실행 로그 폴더 (log=true 시 자동 생성, 실행마다 파일 분리)
 ```
+
 ### 3.3 기본 사용법
 
 ```commandline
 python tcbp.py <JobName> <FileList> [key=value ...] [--config <path>] [--dry-run] [--lang ko|en]
 ```
 
-기본 출력 언어는 한국어이며, 오류·경고·로그 등 tcbp.py 자신이 출력하는 문구만 대상입니다 (config.toml에 사용자가 직접 쓴 `desc`, `{ msg = "..." }` 내용은 번역하지 않고 작성한 그대로 출력됩니다). 언어는 다음 우선순위로 결정됩니다.
-1. `--lang ko` / `--lang en` (CLI 인자, `--help` 텍스트에도 적용됨)
-2. `config.toml`의 `[global] lang = "en"`
-3. 기본값 `ko`
+- 기본 출력 언어는 한국어이며, 별도 설정시 영문을 지원합니다.
+ 1. `--lang ko` / `--lang en` (CLI 인자, `--help` 텍스트에도 적용됨)
+ 2. `config.toml`의 `[global] lang = "en"`
+ 3. 기본값 `ko`
+- 2개국어 지원은 tcbp.py 자신이 출력하는 문구에 한정됩니다.
+- config.toml에 사용자가 직접 쓴 `desc`, `{ msg = "..." }`  사용자가 작성한 언어 그대로 출력합니다.
+
 ### 3.4 예시 - 기본 사용
 ```commandline
 :: 단순 변환 (파라미터 없음)
@@ -72,7 +79,7 @@ python tcbp.py ResizeImages list.txt size=1024
 python tcbp.py CropImages   list.txt x=10 y=20 width=800 height=600
 python tcbp.py Helix_MP3    list.txt bitrate=64
 ```
-
+- `toml` 환경 설정에서 사용자가 지정한 파라미터 프리셋 중에서 선택 실행하는 기능에 대해서는 챕터 4.2.2를 참고하세요.
 
 ### 3.5 dry-run 모드
 ```commandline
@@ -210,7 +217,7 @@ commands = [
 - 경로값은 자동 따옴표 처리가 되지 않으므로, 명령 내에서 `\"{key}\"` 로 감싸야 합니다.
 
 ### 4.2.2 파라미터 preset — 선택 UI
-`params` 항목에 `preset`(라벨+값 목록)을 선언하면, 자유 입력 대신 방향키로 값을 고르는 선택 UI가 자동으로 뜹니다. 외부 패키지(questionary 등) 없이 ANSI 이스케이프 + 키보드 입력만으로 구현되어 있습니다.
+`params` 항목에 `preset`(라벨+값 목록)을 선언하면, 자유 입력 대신 방향키로 값을 고르는 선택 UI가 자동으로 뜹니다.
 
 ```toml
 params = [{
@@ -226,19 +233,21 @@ params = [{
 
 **조작법 (실제 콘솔 실행 시)**
 - ↑/↓ 방향키로 항목 이동, `Enter`로 확정합니다.
-- 현재 선택된 항목은 `>> Label명` 접두사와 함께 ANSI 반전 색상으로 표시됩니다.
+- 현재 선택된 항목은 `>> Label명` 접두사와 함께 반전 색상으로 표시됩니다.
 - `default`에 해당하는 항목이 초기 선택 상태입니다. 아무 키도 누르지 않고 바로 `Enter`를 누르면 `default`가 그대로 확정됩니다.
 - `Esc`를 누르면 현재 작업 전체가 취소되고, 취소 메시지와 함께 종료됩니다.
 
 **`default` 규칙**
-- `default`는 반드시 `preset`의 `value` 목록 안에 있어야 하며(값·타입 모두 일치), 그렇지 않으면 설정 오류로 즉시 종료됩니다.
-- `default`를 아예 생략하면 오류가 아니라, `preset` 목록의 **첫 번째 항목**을 초기 선택값으로 사용합니다.
+- `default`는 `preset`의 `value` 목록 안에 있어야 합니다. 
+- `default`에 지정한 값과 타입이 불일치하면 설정 오류로 즉시 종료됩니다.
+- `default`를 아예 생략하면 `preset` 목록의 **첫 번째 항목**을 초기값으로 사용합니다.
 - `preset`의 각 `value` 타입은 해당 파라미터의 `type`(`int`/`bool`/생략=문자열)과 일치해야 합니다.
 
 **CLI 값과의 관계**
 - CLI로 `key=value`가 이미 전달된 파라미터는 대화형 질문을 건너뜁니다.
-- 단, `preset`이 있는 파라미터에 CLI 값이 들어오면 `preset` 범위 안에 있는지는 그대로 검증합니다 — 범위 밖 값이면 오류로 종료됩니다.
-- `preset`이 없고 `default`만 있는 파라미터는 기존처럼 자유 입력이지만, 프롬프트에 `default`가 미리 채워진 채로 시작해 `Enter`만 눌러도 그 값이 확정됩니다(실제 콘솔 실행 시). `default`도 없으면 100% 기존 동작 그대로입니다.
+- 단, `preset`이 있는 파라미터에 CLI 값이 들어오면 `preset` 범위 안에 있는지 검증하며, 범위 밖이면 오류로 종료됩니다.
+- `preset`이 없고 `default`만 있는 파라미터는 기존처럼 자유 입력이지만, 프롬프트에 `default`가 미리 채워진 채로 시작합니다. 이 때 바로 `Enter`만 누르면 그 값이 확정됩니다.
+- `preset`과 `default`가 모두 없으면 기존대로 사용자의 자유 입력을 기다립니다.
 
 **TTY/ANSI 미지원 환경 (파이프/리다이렉트 등)**
 콘솔이 아니어서 방향키 UI를 쓸 수 없는 환경에서는 번호를 입력하는 방식으로 자동 폴백합니다.
@@ -255,13 +264,24 @@ params = [{
 `params`가 선언된 Job이라도, 필요한 값이 모두 CLI `key=value`로 주어졌다면 아무 화면도 추가되지 않습니다(완전한 하위호환). 하나라도 사용자가 직접 입력(preset 선택 포함)해야 했던 경우에만, 실제 실행 직전에 최종 파라미터 요약과 진행/취소 선택 화면이 나타납니다.
 
 **값과 라벨이 달라 헛갈리는 문제 완화**
-`preset`의 `value`가 사용자에게 익숙한 숫자와 다를 수 있습니다(예: `ch_bitrate`는 채널당 전송율이라 "128kbps"를 고르면 실제 값은 64). 이런 경우 아래 두 가지를 함께 쓰는 것을 권장합니다.
+`preset`의 `value`가 사용자에게 익숙한 숫자와 다를 수 있습니다,
+한 예로, 대부분의 MP3 인코더는 전체 스트림(스테레오 음악이라면 2채널 분량)의 전송율을 지칭하지만, HMP3 인코더는 채널당 전송율로 지정합니다. 즉, lameenc 에서 128bps는 HMP3에서 64kbps에 해당합니다. 상기의 toml 설정 예제에서
+`label="128kbps", value=64`로 기재된 것은 이 대문입니다.
+
+이 때 실제로 사용하는 파라미터값은 64이기 때문에, 콘솔창의 출력에 이 파라미터값을 그대로 출력하면 사용자가 혼선을 일으키게 됩니다. (128kbps를 골랐는데 왜 64라는 숫자가 뜨지?) 이 혼선을 완화하기 위해 다음과 같은 사용방식을 권장합니다.
+
 1. **라벨 문구에 실제 값을 명시** — `label="128kbps (64kbps/ch)"`처럼 실제 저장되는 값의 의미를 라벨 자체에 적어둡니다.
-2. **`{key}_label` placeholder 활용** — `preset`이 선언된 파라미터마다 `{key}_label`(사용자가 고른 라벨 텍스트)이 자동 생성되어 `pre`/`post`/`commands`의 `{ msg = "..." }`에서 쓸 수 있습니다.
-   ```toml
-   { msg = "   Bitrate : {ch_bitrate_label} -> {ch_bitrate} kbps/channel" },
-   ```
-   또한 실행 직전 최종 확인 화면에도 `preset`으로 선택된 파라미터는 값과 함께 고른 라벨이 자동으로 병기됩니다: `ch_bitrate = 64  (선택: 128kbps (64kbps/ch))`.
+2. **`{key.label}`와 `{key.value}` placeholder 활용** — 
+```toml
+{ msg = "   Bitrate : {ch_bitrate.label} = {ch_bitrate.value} kbps/channel" },
+```
+와 같이 설정하면 실행시에는
+```
+   Bitrate : 128kbps (64kbps/ch) = 64 kbps/channel
+```
+와 같이 출력됩니다.
+
+`{key.label}` placeholder는 프로그램 내부적으로는 key값에 따라 자동생성되는 placeholder인 `{key}_label`의 문법 설탕입니다. 위의 경우 내부적으로는 {ch_bitrate_label}의 placeholder로 처리됩니다. 마찬가지로 {ch_bitrate.value}는 {ch_bitrate}의 문법 설탕입니다.
 
 ### 4.3 치환자(Placeholder) 일람
 | Placeholder | 설명 | 예시 |
@@ -662,7 +682,10 @@ python tcbp.py Sharpen list.txt radius=3 sigma=1.5 quality=95
 **기존 기능과의 관계**: 폴더 입력은 내부적으로 (list.txt와 동일한) 파일 목록으로 변환된 뒤 기존 처리 엔진에 그대로 전달됩니다. 즉 tool 기반 Job, FileSession/BatchSession 플러그인, `parallel` 병렬 처리, placeholder 치환, 로깅 등 다른 모든 기능은 수정 없이 그대로 동작합니다.
 
 ---
-## 8. 테크니컬 노트 : Unicode 경로 처리 정책
+
+## 8. 테크니컬 노트
+
+### 8.1 테크니컬 노트 : Unicode 경로 처리 정책
 일부 외부 도구(gm.exe 등)는 ANSI 빌드이므로, 시스템 코드 페이지(cp949) 범위를 벗어나는 문자(일본어 등)가 경로나 파일명에 포함되면 파일을 열지 못하는 경우가 있습니다. TCBP는 `subprocess.run(cwd=unicode_dir)`로 작업 디렉토리(cwd)로 지정하고, 도구의 인수에는 파일명만 상대 경로로 전달하는 방식을 사용합니다. 이를 통해 ANSI 경로명만 지원하는 프로그램을 상대로도 유니코드 경로명의 파일을 이상없이 우회처리합니다.
 ```
 gm.exe convert -quality 95 "001.jpg" "001.png"
@@ -671,7 +694,7 @@ gm.exe convert -quality 95 "001.jpg" "001.png"
 - `CreateProcessW` 의 `lpCurrentDirectory` 파라미터로 전달되므로 Python에서 Unicode 디렉토리를 cwd로 설정 합니다.
 - 도구가 `fopen("001.jpg")` 를 호출하면 OS가 내부적으로 `cwd + 파일명` 으로 해석합니다.
 
-## 9. 테크니컬 노트 : TCBL → TCBP 이전 대응표
+### 8.2 테크니컬 노트 : TCBL → TCBP 이전 대응표
 기존 TCBL 도구를 쓰던 분이 본 도구로 이전(migration)하고자 할 때, placeholder의 대응표입니다.
 
 | TCBL | TCBP |
@@ -688,11 +711,11 @@ gm.exe convert -quality 95 "001.jpg" "001.png"
 | `end=` | `post = [...]` |
 | `batch_preset.ini [Section]` | `config.toml [jobs.JobName]` |
 
-## 10. 테크니컬 노트 : `shell=True` / `shell=False` 차이와 내장 명령·외부 명령 기술 규칙
+### 8.3 테크니컬 노트 : `shell=True` / `shell=False` 차이와 내장 명령·외부 명령 기술 규칙
 
 TCBP는 `pre` / `commands` / `post` 모든 명령을 **`shell=False`**로 `subprocess`를 실행합니다. 이 챕터는 그렇게 하는 이유와, `config.toml`에서 명령을 기술할 때 지켜야 할 규칙을 설명합니다.
 
-### 10.1 `subprocess`가 프로세스를 띄우는 두 가지 방식
+### 8.4  테크니컬 노트 : `subprocess`가 프로세스를 띄우는 두 가지 방식
 
 | 구분 | 실제로 실행되는 프로세스 | 명령 문자열의 운명 |
 |---|---|---|
@@ -712,9 +735,9 @@ subprocess.run(["gm.exe", "convert", "photo.jpg", "photo.png"], shell=False)
 - 인용부호(`"`) 처리 규칙이 cmd.exe 고유 규칙을 따르므로, 유니코드 경로·공백·특수문자가 섞이면 따옴표를 어떻게 감싸야 안전한지가 미묘해집니다.
 - 파일명 등 외부에서 들어온 문자열이 그대로 명령에 삽입되면 **명령 인젝션** 위험이 있습니다.
 
-`shell=False`는 cmd.exe를 거치지 않으므로 위 문제가 원천적으로 사라지고, 8장에서 설명한 유니코드 경로 우회가 인자를 그대로 전달한다는 전제 위에서 안정적으로 동작합니다. 이것이 TCBP가 모든 명령을 `shell=False`로 통일한 이유입니다.
+`shell=False`는 cmd.exe를 거치지 않으므로 위 문제가 원천적으로 사라지고, 8.1절에서 설명한 유니코드 경로 우회가 인자를 그대로 전달한다는 전제 위에서 안정적으로 동작합니다. 이것이 TCBP가 모든 명령을 `shell=False`로 통일한 이유입니다.
 
-### 10.2 셸 커맨드 내장 명령을 사용하고 싶다면
+### 8.5  테크니컬 노트 : 셸 커맨드 내장 명령을 사용하고 싶다면
 
 `echo`, `del`, `copy`, `dir`, `cd`, `set` 등은 **실행 파일이 아니라 cmd.exe 내부에만 존재하는 내장 명령(builtin)** 입니다 (`echo.exe`, `del.exe` 같은 파일은 Windows에 없습니다). `shell=False`로 `"echo 안녕"`을 그대로 실행하면 OS가 `echo`라는 이름의 실행 파일을 찾으려 들지만, 그런 실행파일은 없으므로 `FileNotFoundError`를 내며 실패합니다. 
 
@@ -727,10 +750,13 @@ commands = [
 ]
 ```
 
-## 11. 테크니컬 노트 : Placeholder `{key.label}` / `{key.value}` 문법 설탕
-4.2.2절에서 설명한 것처럼, `preset`이 있는 파라미터는 실제로 저장되는 값(`value`)과 사용자가 고른 라벨(`label`)이 다를 수 있습니다(예: `ch_bitrate`는 채널당 전송율이라 "128kbps"를 고르면 실제 값은 64). 이 값·라벨 쌍을 `pre`/`post`/`commands`의 `{ msg = "..." }`에서 함께 보여줄 때 쓰라고 `{key}_label`이라는 placeholder를 자동 생성해두었지만, 그 이름만 봐서는 `{key}`로부터 파생된 것인지 알아보기 어렵다는 문제가 있었습니다. 이를 보완하기 위해 `{key.label}` / `{key.value}` 표기를 추가로 지원합니다 — 관계가 표기 자체에서 드러나도록 한 것입니다.
+### 8.6 테크니컬 노트 : Placeholder `{key.label}` / `{key.value}` 문법 설탕
 
-**중요: 이건 Python의 진짜 객체 속성 접근이 아닙니다.** Python `str.format()`의 `"{name.attr}"` 문법은 실제로 `context[name]`이라는 객체를 먼저 찾은 뒤, 그 객체에 대해 `getattr(obj, "attr")`을 수행합니다. `{ch_bitrate.label}`을 이 방식 그대로 지원하려면 `context["ch_bitrate"]`에 들어가는 값 자체를 `.label` 속성을 가진 `int`/`str` 서브클래스로 감싸야 하는데, **`bool`은 파이썬에서 서브클래싱이 금지**되어 있어(`TypeError: type 'bool' is not an acceptable base type`) `type="bool"`인 preset 파라미터를 이 방식으로는 지원할 수 없습니다.
+4.2.2절에서 설명한 것처럼, `preset`이 있는 파라미터는 실제로 저장되는 값(`value`)과 사용자가 고른 라벨(`label`)의 내용이 서로 다를 수 있습니다.(예: `ch_bitrate`는 채널당 전송율이라 "128kbps"를 고르면 실제 값은 64). 
+
+이 값·라벨 쌍을 `pre`/`post`/`commands`의 `{ msg = "..." }`에서 함께 보여줄 때 쓰라고 `{key}_label`이라는 placeholder를 자동 생성해두었지만, 그 이름만 봐서는 `{key}`로부터 파생된 것인지 알아보기 어렵다는 문제가 있었습니다. 이를 보완하기 위해 `{key.label}` / `{key.value}` 표기를 추가로 지원합니다 — 관계가 표기 자체에서 드러나도록 한 것입니다.
+
+**중요: 기술적으로는 이것은 Python의 진짜 객체 속성 접근이 아닙니다.** Python `str.format()`의 `"{name.attr}"` 문법은 실제로 `context[name]`이라는 객체를 먼저 찾은 뒤, 그 객체에 대해 `getattr(obj, "attr")`을 수행합니다. `{ch_bitrate.label}`을 이 방식 그대로 지원하려면 `context["ch_bitrate"]`에 들어가는 값 자체를 `.label` 속성을 가진 `int`/`str` 서브클래스로 감싸야 하는데, **`bool`은 파이썬에서 서브클래싱이 금지**되어 있어(`TypeError: type 'bool' is not an acceptable base type`) `type="bool"`인 preset 파라미터를 이 방식으로는 지원할 수 없습니다.
 
 그래서 `tcbp.py`의 [substitute()](tcbp.py)는 실제 속성 접근 프로토콜을 쓰는 대신, `str.format_map()`을 호출하기 **전에** 정규식으로 텍스트를 먼저 바꿔치기합니다 ([_expand_dot_sugar()](tcbp.py)):
 - `{key.label}` → context에 `key_label`이 있으면 `{key_label}`로, 없으면 `{{key.label}}`(이스케이프된 리터럴)로 치환
@@ -745,14 +771,14 @@ context 안의 실제 값 타입(`int`/`bool`/`str`)은 전혀 건드리지 않�
 - 기존에 문서화된 flat 이름(`{key}_label`)도 내부 구현 그대로 남아 있어 계속 유효합니다 — 완전한 하위호환.
 - `validate_config.py`의 미정의 placeholder 검사기(`_extract_placeholders`)는 원래부터 `.`/`[...]` 뒤를 잘라내고 베이스 이름만 검사하므로, `{ch_bitrate.label}` 표기도 별도 수정 없이 `ch_bitrate`(이미 선언된 파라미터)로 인식되어 오탐이 나지 않습니다.
 
-## 12. 버전 이력
+## 9. 버전 이력
 - **v1.0:** 초도 배포판
 - **v1.1:** 멀티 프로세싱에서 먼저 끝나는 결과를 먼저 출력하도록 수정 (기존에는 뒤에 시작한 파일은 먼저 끝나도 앞 파일 결과 출력할 때까지 출력을 보류했음)
 - **v1.2:** `output_rule` 키값을 `output`으로 이름 변경 (`{output}` placeholder와 일치성을 위해)
 - **v1.3:** 출력이 길어서 한 줄에 다 나오지 못하는 경우, 파일명을 중간 생략하여 표시
 - **v1.4:** `pre`/`post`가 `commands`와 동일하게 `shell=False` (CommandLineToArgvW 파싱)로 실행되도록 변경. `cmd.exe` 내장 명령은 예외 없이 `cmd /c`를 명시해야 하며(`config.toml` 전체 반영), pre/post 결과(STDOUT/STDERR)도 이제 로그 파일에 함께 기록됨. 그 결과 배너 등을 출력하기 위해 `cmd /c echo ----어쩌구저쩌구---` 로 명령을 추는 것을 너무 복잡해지므로, 메시지 출력용 `msg` 명령을 추가하였음.
 - **v1.5:** {output}을 참조하면서 실제로는 파일을 안 만드는 명령이 '성공'으로 카운트되는 문제(조용한 실패)를 '실패'로 카운트하도록 수정
-- **v1.6:** 멀티 스텝 명령에서 임시 파일이 필요할 때 파일명 충돌을 피하도록 `{taskid}`(배치 전체 공용) / `{itemid}`(파일 단위) placeholder 추가. 설명서 챕터8 Unicode 경로 처리 정책 설명을 실제 구현(상대 경로 모드)에 맞게 정리. 챕터10 테크니컬 노트 내용 정리.
+- **v1.6:** 멀티 스텝 명령에서 임시 파일이 필요할 때 파일명 충돌을 피하도록 `{taskid}`(배치 전체 공용) / `{itemid}`(파일 단위) placeholder 추가. 설명서 8.1절 Unicode 경로 처리 정책 설명을 실제 구현(상대 경로 모드)에 맞게 정리. 8.3절 테크니컬 노트 내용 정리.
 - **v1.7:** 화면 표시 파일명 길이 계산에 `wcwidth`를 우선 사용하도록 개선(미설치 시 기존 방식으로 대체). `config.toml` 로드 직후 Job 정의를 자동 검증하는 기능 추가(TOML 문법 오류 메시지 개선, 필수 key 누락·예약어 오타·placeholder 오타·미사용 key 진단).
 - **v1.8:** tcbp.py 자신이 출력하는 문구(오류·경고·로그·`--help`)를 한국어/영어 이중 언어로 지원. 실행시 옵션을 `--lang ko` 또는 `--lang en`로 지정하거나, `config.toml`의 `[global] lang`으로 선택 (기본값 `ko`). `config.toml`에 사용자가 작성한 내용(`desc`, `msg`)은 번역 대상에서 제외.
 - **v1.9:** 섹션 구분 주석 추가 및 일부 함수 위치 재배치 (코드 수정은 없음)

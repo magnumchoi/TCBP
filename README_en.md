@@ -1,4 +1,4 @@
- TCBP — Total Commander Batch Python
+# TCBP — Total Commander Batch Python
 [TOC]
 ## 1. Overview
 This tool is a Python re-implementation of similar functionality, inspired by [TCBL (Total Commander Batch Builder & Launcher)](https://totalcmd.net/plugring/TCBL_1.02.html).
@@ -662,7 +662,9 @@ If this rule weren't applied and the full absolute path strings were sorted dire
 **Relationship to existing features**: A directory input is internally converted into a file list (the same as with list.txt) and handed to the existing processing engine as-is. That means tool-based Jobs, FileSession/BatchSession plugins, `parallel` processing, placeholder substitution, logging, and every other feature work unmodified.
 
 ---
-## 8. Technical Note: Unicode Path Handling Policy
+## 8. Technical Notes
+
+### 8.1 Technical Note: Unicode Path Handling Policy
 Some external tools (e.g. gm.exe) are ANSI builds, so if a path or file name contains characters outside the system code page (cp949) range (e.g. Japanese), the tool may fail to open the file. TCBP works around this by passing the Unicode directory as the working directory (cwd) via `subprocess.run(cwd=unicode_dir)`, and passing only the file name as a relative path in the tool's arguments. This lets programs that only support ANSI path names correctly handle files with Unicode paths without issue.
 ```
 gm.exe convert -quality 95 "001.jpg" "001.png"
@@ -671,7 +673,7 @@ gm.exe convert -quality 95 "001.jpg" "001.png"
 - This is passed via the `lpCurrentDirectory` parameter of `CreateProcessW`, so Python sets the Unicode directory as the cwd.
 - When the tool calls `fopen("001.jpg")`, the OS internally resolves it as `cwd + file name`.
 
-## 9. Technical Note: TCBL → TCBP Migration Table
+### 8.2 Technical Note: TCBL → TCBP Migration Table
 For those migrating from the existing TCBL tool to this tool, here is a placeholder mapping table.
 
 | TCBL | TCBP |
@@ -688,11 +690,11 @@ For those migrating from the existing TCBL tool to this tool, here is a placehol
 | `end=` | `post = [...]` |
 | `batch_preset.ini [Section]` | `config.toml [jobs.JobName]` |
 
-## 10. Technical Note: `shell=True` vs `shell=False`, and Rules for Writing Built-in vs External Commands
+### 8.3 Technical Note: `shell=True` vs `shell=False`, and Rules for Writing Built-in vs External Commands
 
-TCBP runs every `pre` / `commands` / `post` command via `subprocess` with **`shell=False`**. This chapter explains why, and the rules to follow when writing commands in `config.toml`.
+TCBP runs every `pre` / `commands` / `post` command via `subprocess` with **`shell=False`**. This section explains why, and the rules to follow when writing commands in `config.toml`.
 
-### 10.1 Two Ways `subprocess` Launches a Process
+### 8.4 Technical Note: Two Ways `subprocess` Launches a Process
 
 | | Process actually launched | Fate of the command string |
 |---|---|---|
@@ -712,9 +714,9 @@ Because `shell=True` has cmd.exe interpret the string one more time:
 - Quote (`"`) handling follows cmd.exe's own rules, so once Unicode paths, spaces, or special characters get mixed in, it becomes subtle to determine how to safely wrap them in quotes.
 - If an externally sourced string, such as a file name, is inserted directly into the command, there is a risk of **command injection**.
 
-`shell=False` bypasses cmd.exe entirely, so the problems above disappear at the root, and it lets the Unicode path workaround described in Chapter 8 work reliably, on the premise that arguments are passed through as-is. This is why TCBP runs every command uniformly with `shell=False`.
+`shell=False` bypasses cmd.exe entirely, so the problems above disappear at the root, and it lets the Unicode path workaround described in section 8.1 work reliably, on the premise that arguments are passed through as-is. This is why TCBP runs every command uniformly with `shell=False`.
 
-### 10.2 If You Want to Use a Shell Built-in Command
+### 8.5 Technical Note: If You Want to Use a Shell Built-in Command
 
 `echo`, `del`, `copy`, `dir`, `cd`, `set`, and similar commands are **not executable files — they exist only as built-in commands inside cmd.exe** (there are no files like `echo.exe` or `del.exe` on Windows). If you run `"echo hello"` as-is with `shell=False`, the OS tries to find an executable file named `echo`, but no such executable exists, so it fails with `FileNotFoundError`.
 
@@ -727,7 +729,7 @@ commands = [
 ]
 ```
 
-## 11. Technical Note: Placeholder `{key.label}` / `{key.value}` Syntactic Sugar
+### 8.6 Technical Note: Placeholder `{key.label}` / `{key.value}` Syntactic Sugar
 As explained in section 4.2.2, a param declared with `preset` can have a stored value (`value`) that differs from the label (`label`) the user picked (e.g. `ch_bitrate` is a per-channel rate, so picking "128kbps" actually stores 64). A `{key}_label` placeholder is auto-generated so this value/label pair can be shown together in `pre`/`post`/`commands`' `{ msg = "..." }`, but its name alone doesn't make it obvious that it's derived from `{key}`. To address that, `{key.label}` / `{key.value}` notation is also supported — so the relationship is visible in the notation itself.
 
 **Important: this is not real Python attribute access.** Python `str.format()`'s `"{name.attr}"` syntax actually looks up the object `context[name]` first, then performs `getattr(obj, "attr")` on it. Supporting `{ch_bitrate.label}` this way for real would require wrapping the value stored in `context["ch_bitrate"]` in an `int`/`str` subclass carrying a `.label` attribute — but **`bool` cannot be subclassed in Python** (`TypeError: type 'bool' is not an acceptable base type`), so `type="bool"` preset params couldn't be supported this way.
@@ -745,14 +747,14 @@ The actual value types (`int`/`bool`/`str`) inside the context are never touched
 - The previously documented flat name (`{key}_label`) remains valid as-is under the hood — fully backward compatible.
 - `validate_config.py`'s undefined-placeholder checker (`_extract_placeholders`) already strips everything after `.`/`[...]` and checks only the base name, so `{ch_bitrate.label}` notation is recognized as `ch_bitrate` (an already-declared param) without any extra change, and doesn't trigger a false positive.
 
-## 12. Version History
+## 9. Version History
 - **v1.0:** Initial release
 - **v1.1:** Fixed multi-processing so that whichever result finishes first is printed first (previously, a file that started later but finished earlier would have its output held back until the earlier file's output was printed)
 - **v1.2:** Renamed the `output_rule` key to `output` (for consistency with the `{output}` placeholder)
 - **v1.3:** When output is too long to fit on one line, the file name is now shown with the middle truncated
 - **v1.4:** Changed `pre`/`post` to run with `shell=False` (`CommandLineToArgvW` parsing) just like `commands`. `cmd.exe` built-in commands must now always be written with `cmd /c` with no exceptions (applies across all of `config.toml`), and pre/post results (STDOUT/STDERR) are now also recorded in the log file. As a result, writing something like `cmd /c echo ----banner-text----` to print banners became too cumbersome, so a dedicated `msg` command for printing messages was added.
 - **v1.5:** Fixed a silent-failure bug where a command that referenced `{output}` but did not actually create the file was still counted as a 'success'; it is now counted as a 'failure'
-- **v1.6:** Added `{taskid}` (shared across the whole batch) / `{itemid}` (per-file) placeholders to avoid file name collisions when a temporary file is needed in a multi-step command. Updated the Chapter 8 Unicode path handling policy description in the docs to match the actual implementation (relative-path mode). Cleaned up the Chapter 10 technical notes content.
+- **v1.6:** Added `{taskid}` (shared across the whole batch) / `{itemid}` (per-file) placeholders to avoid file name collisions when a temporary file is needed in a multi-step command. Updated the section 8.1 Unicode path handling policy description in the docs to match the actual implementation (relative-path mode). Cleaned up the section 8.3 technical notes content.
 - **v1.7:** Improved the on-screen file name length calculation to prefer using `wcwidth` (falls back to the previous method if not installed). Added a feature that automatically validates job definitions right after loading `config.toml` (improved TOML syntax error messages; diagnoses missing required keys, misspelled reserved words, misspelled placeholders, and unused keys).
 - **v1.8:** Added bilingual Korean/English support for text that tcbp.py itself outputs (errors, warnings, logs, `--help`). Selectable via `--lang ko`, `--lang en` or `[global] lang` in `config.toml` (default `ko`). Content the user writes in `config.toml` (`desc`, `msg`) is excluded from translation.
 - **v1.9:** Added section-divider comments and relocated a few functions to group them by area (no code behavior changes).
@@ -767,4 +769,4 @@ The actual value types (`int`/`bool`/`str`) inside the context are never touched
   - A `default` outside the preset's value list is a config error; CLI-supplied values also have their preset range validated.
   - Environments without TTY/ANSI support automatically fall back to numbered selection.
   - The final parameter confirmation screen right before execution appears only when the user had to enter a value manually (an existing Job fully supplied via CLI sees no behavior change).
-  - To mitigate confusion when a preset's value differs from the label the user picked, the final confirmation screen now pairs the picked label with the value, and the `{key.label}` / `{key.value}` placeholders (section 11) are available for use in `pre`/`post` messages, etc.
+  - To mitigate confusion when a preset's value differs from the label the user picked, the final confirmation screen now pairs the picked label with the value, and the `{key.label}` / `{key.value}` placeholders (section 8.6) are available for use in `pre`/`post` messages, etc.
