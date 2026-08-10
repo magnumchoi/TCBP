@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 [ko]
-tcbp.py - Total Commander Batch Python (v2.4)
+tcbp.py - Total Commander Batch Python (v2.5)
 TOML 기반 범용 배치 처리 엔진
 
 Usage:
@@ -17,7 +17,7 @@ Usage:
 
 import sys, ctypes, tomllib, unicodedata, logging, subprocess
 import argparse, shutil, tempfile, threading, uuid, datetime
-import re, dataclasses, importlib.util, typing, fnmatch
+import re, dataclasses, importlib.util, typing, fnmatch, msvcrt
 from dataclasses import dataclass
 from typing import Literal, Callable, TypeVar, ClassVar, Any
 from pathlib import Path
@@ -31,23 +31,14 @@ except ImportError:
 
 """
 [ko]
-현재 실행 중인 모듈을 "tcbp"라는 고정 이름으로 별칭 등록한다. 이렇게 해야
-동적으로 로드되는 플러그인(load_plugin(), PART 4 참고) 안의 `from tcbp import ...`가
-tcbp.py가 __main__으로 실행 중이든 validate_config.py 등에서 라이브러리로
-import됐든 항상 이 실행 중인 모듈 인스턴스를 가리킨다. 이게 없으면 플러그인의
-`from tcbp import ...`가 tcbp.py를 별개의 모듈로 다시 실행시켜, 여기서 정의한
-클래스(PluginInfo, FileSession 등)에 대한 isinstance 검사가 정상 플러그인에서도
-항상 실패하게 된다.
+현재 실행 중인 모듈을 "tcbp"라는 고정 이름으로 별칭 등록. 이후 동적 로딩되는
+플러그인(load_plugin(), PART 4 참고) 안의 `from tcbp import ...`가 항상
+이 실행 중인 모듈 인스턴스를 가리킨다. 
 
 [en]
 Alias the currently-executing module under the fixed name "tcbp" so that
 `from tcbp import ...` inside a dynamically-loaded plugin (see load_plugin(),
-PART 4) always resolves to THIS running module instance — whether tcbp.py
-itself is running as __main__ or is being imported as a library (e.g. from
-validate_config.py). Without this, a plugin's own `from tcbp import ...`
-would re-execute tcbp.py as a second, distinct module object, and isinstance
-checks against classes defined here (PluginInfo, FileSession, ...) would
-always fail even for a correctly-written plugin.
+PART 4) always resolves to THIS running module instance.
 """
 sys.modules.setdefault("tcbp", sys.modules[__name__])
 
@@ -57,17 +48,8 @@ sys.modules.setdefault("tcbp", sys.modules[__name__])
 # [en] PART 1. BOOTSTRAP & I18N (Internationalization)
 # ═══════════════════════════════════════════════════════════════════════════
 """
-[ko]
-i18n - 실행 중 출력 문구 카탈로그 (영어/한국어)
-tcbp.py 자신이 출력하는 문구(오류, 경고, 로그 줄, --help 텍스트)만 이 경로를 거친다.
-config.toml에 사용자가 직접 작성한 콘텐츠(job desc, { msg = "..." } 문구)는
-작성자가 쓴 그대로 두며 자동 번역하지 않는다.
-
-[en]
-i18n - runtime message catalog
-Only messages tcbp.py itself prints (errors, warnings, log lines, --help text) go
-through this. User-authored content in config.toml (job `desc`, `{ msg = "..." }`
-text) is left as the author wrote it — never auto-translated.
+[ko] i18n - 실행 중 출력 문구 카탈로그 (영어/한국어)
+[en] i18n - runtime message catalog
 """
 _LANG = "ko"  # [ko] 기본값. --lang 또는 config.toml의 [global].lang으로 재설정됨 / [en] default; overridden by --lang or config.toml's [global].lang
 
@@ -117,6 +99,19 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "info_file_count":       "파일 {count}개  |  {mode}",
         "prompt_press_any_key":  "\n아무 키나 누르면 종료합니다...",
         "label_processing":      "처리 중...",
+        "err_preset_value_type_mismatch": "[오류] Job '{job}' 파라미터 '{param}'의 preset 값 '{label}'={value!r}가 선언된 type=\"{type}\"과 일치하지 않습니다.",
+        "err_preset_default_not_in_preset": "[오류] Job '{job}' 파라미터 '{param}'의 default 값 {default!r}가 preset 값 목록에 없습니다.",
+        "err_preset_value_not_allowed": "[오류] 파라미터 '{param}'에 전달된 값 '{value}'는 preset 범위를 벗어났습니다. 허용된 값: {allowed}",
+        "info_cancelled_by_user": "취소되었습니다.",
+        "label_final_param_summary": "\n--- 최종 파라미터 확인 ---",
+        "label_confirm_prompt":  "이대로 진행할까요?",
+        "label_proceed":         "진행",
+        "label_cancel":          "취소",
+        "label_selected_as":     "선택: {label}",
+        "hint_select_fallback":  "번호 선택 (Enter=기본값 {default}, c=취소): ",
+        "err_invalid_choice":    "  [오류] 목록에 있는 번호를 입력하세요.",
+        "info_pydantic_missing":  "[INFO] pydantic이 설치되지 않았습니다. pip install pydantic 으로 설치하면 더 엄격한 타입 검증을 받을 수 있습니다.",
+        "info_pydantic_fallback": "[INFO] pydantic 없이 표준 dataclass 기반 폴백으로 계속 진행합니다.",
     },
     "en": {
         "cli_description":       "Total Commander Batch Python - a generic TOML-based batch processing engine",
@@ -162,6 +157,19 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "info_file_count":       "{count} file(s)  |  {mode}",
         "prompt_press_any_key":  "\nPress any key to exit...",
         "label_processing":      "Processing...",
+        "err_preset_value_type_mismatch": "[ERROR] Job '{job}' param '{param}' preset value '{label}'={value!r} does not match the declared type=\"{type}\".",
+        "err_preset_default_not_in_preset": "[ERROR] Job '{job}' param '{param}' default value {default!r} is not among its preset values.",
+        "err_preset_value_not_allowed": "[ERROR] Value '{value}' given for param '{param}' is outside its preset range. Allowed values: {allowed}",
+        "info_cancelled_by_user": "Cancelled.",
+        "label_final_param_summary": "\n--- Final Parameter Summary ---",
+        "label_confirm_prompt":  "Proceed with these settings?",
+        "label_proceed":         "Proceed",
+        "label_cancel":          "Cancel",
+        "label_selected_as":     "selected: {label}",
+        "hint_select_fallback":  "Select number (Enter=default {default}, c=cancel): ",
+        "err_invalid_choice":    "  [ERROR] Please enter a number from the list.",
+        "info_pydantic_missing":  "[INFO] pydantic is not installed. Install it with pip install pydantic for stricter type validation.",
+        "info_pydantic_fallback": "[INFO] Continuing without pydantic, falling back to standard dataclasses.",
     },
 }
 
@@ -197,6 +205,13 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+# [ko] --lang을 최대한 일찍 반영 — 모듈 로드 시점(PART 1B의 pydantic 폴백 안내 등)에
+#      출력되는 메시지도 올바른 언어로 보이도록, main()의 동일 호출보다 먼저 실행한다.
+# [en] Apply --lang as early as possible — so messages printed at module-load time
+#      (e.g. PART 1B's pydantic fallback notice) also show in the right language;
+#      this runs before main()'s equivalent call.
+_set_lang(_prescan_lang(sys.argv[1:]))
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # [ko] PART 1B. 엄격한 dataclass & 플러그인 계약
@@ -206,19 +221,13 @@ if hasattr(sys.stderr, "reconfigure"):
 [ko]
 strict_dataclass: pydantic이 있으면 pydantic.dataclasses.dataclass를 그대로
 쓰고, 없으면 표준 dataclasses.dataclass + 최소 isinstance 기반 __post_init__
-검증으로 폴백한다 (플러그인 확장 계획서 3.8.1). Session/PluginInfo/ExecResult/
-BatchResult(PART 3)가 이 데코레이터에 의존하므로 그보다 먼저 정의한다.
-PluginInfo/@plugin: 플러그인의 run() 함수에 메타정보를 부착하는 데코레이터
-(모듈 레벨 PLUGIN_INFO dict 방식 대체, 5.2 참고).
+검증으로 폴백
 
 [en]
 strict_dataclass: uses pydantic.dataclasses.dataclass as-is if pydantic is
 available, otherwise falls back to a standard dataclasses.dataclass plus
 minimal isinstance-based validation in __post_init__ (plugin expansion plan
-3.8.1). Defined before Session/PluginInfo/ExecResult/BatchResult (PART 3),
-since they depend on this decorator.
-PluginInfo/@plugin: the decorator that attaches metadata to a plugin's run()
-function (replaces the old module-level PLUGIN_INFO dict approach, see 5.2).
+3.8.1).
 """
 
 try:
@@ -234,16 +243,8 @@ except ImportError:
 
     def strict_dataclass(*, frozen: bool = True):
         """
-        [ko]
-        pydantic 미설치 시 폴백: 표준 dataclass + __post_init__에서 필드
-        타입을 isinstance로 재검증한다 (완전한 pydantic 검증만큼 촘촘하지는
-        않음 — 3.8.1의 알려진 한계 참고).
-
-        [en]
-        Fallback for when pydantic isn't installed: a standard dataclass plus
-        re-validating field types via isinstance in __post_init__ (not as
-        thorough as full pydantic validation — see the known limitation in
-        3.8.1).
+        [ko] pydantic 미설치 시 폴백
+        [en] Fallback for when pydantic isn't installed
         """
         def _wrap(cls):
             hints = typing.get_type_hints(cls)
@@ -261,8 +262,8 @@ except ImportError:
             return dataclasses.dataclass(frozen=frozen)(cls)
         return _wrap
 
-    print("[INFO] pydantic이 설치되지 않았습니다. pip install pydantic 으로 설치하면 더 엄격한 타입 검증을 받을 수 있습니다.", file=sys.stderr)
-    print("[INFO] pydantic 없이 표준 dataclass 기반 폴백으로 계속 진행합니다.", file=sys.stderr)
+    print(_t("info_pydantic_missing"), file=sys.stderr)
+    print(_t("info_pydantic_fallback"), file=sys.stderr)
 
 
 @strict_dataclass(frozen=True)
@@ -273,17 +274,10 @@ class PluginInfo:
     session_type: Literal["file", "batch"]
     requirements: list = dataclasses.field(default_factory=list)
     notes_per_file: int = 0
-    # [ko] FileSession 플러그인이 모듈 전역/클래스 변수 등 파일 간 공유 상태를
-    #      락 없이 안전하게 다룰 수 없게 작성됐다면 False로 선언한다 (플러그인
-    #      가이드 5.10절). parallel=true(+max_workers>1) Job에 매칭되면
-    #      _require_essentials()/validate_config.py가 즉시 실행을 거부한다.
-    #      BatchSession은 애초에 병렬 실행되지 않으므로(2.3절) 의미가 없다.
-    # [en] Declare False if a FileSession plugin can't safely handle state
-    #      shared across files (a module-level global, a class variable)
-    #      without a lock (plugin guide, Section 5.10). If matched with a
-    #      parallel=true (+max_workers>1) Job, _require_essentials()/
-    #      validate_config.py refuse to run it immediately. Meaningless for
-    #      BatchSession, which is never run in parallel to begin with (2.3).
+    """
+    [ko] FileSession 플러그인이 모듈 전역/클래스 변수 등 파일 간 공유 상태를 락 없이 안전하게 다룰 수 없게 작성됐다면 False로 선언
+    [en] Declare False if a FileSession plugin can't safely handle state shared across files
+    """
     thread_safe: bool = True
 
 
@@ -298,15 +292,8 @@ def plugin(
     thread_safe: bool = True,
 ) -> Callable[[_PluginFunc], _PluginFunc]:
     """
-    [ko]
-    플러그인의 run() 함수에 붙이는 데코레이터. PluginInfo를 만들어
-    run.plugin_info에 부착한다 — 잘못된 값은 여기서(plugin import 시점) 즉시
-    실패한다 (5.5의 (a) fail-fast).
-
-    [en]
-    The decorator attached to a plugin's run() function. Builds a PluginInfo
-    and attaches it to run.plugin_info — an invalid value fails immediately
-    right here, at plugin import time (5.5's (a) fail-fast).
+    [ko] 플러그인의 run() 함수에 붙이는 데코레이터. PluginInfo를 만들어 run.plugin_info에 부착한다
+    [en]  The decorator attached to a plugin's run() function. Builds a PluginInfo and attaches it to run.plugin_info
     """
     info = PluginInfo(
         name=name, version=version, author=author,
@@ -322,18 +309,13 @@ def plugin(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# [ko] PART 2. Windows API 유틸리티
-# [en] PART 2. WINDOWS API UTILITIES
-"""
-[ko]
-파일 전체에서 쓰이는 Win32 API 직접 호출 모음: 8.3 단축 경로 변환, ACP 인코딩
-가능 여부 확인, ANSI 이스케이프 활성화, cmd.exe 없이 argv 파싱.
-
-[en]
-Direct Win32 calls used across the file: 8.3 short-path conversion, ACP
-encodability check, ANSI escape enablement, and argv parsing without cmd.exe.
-"""
+# [ko] Windows API 유틸리티들
+# [en] WINDOWS API UTILITIES
 # ═══════════════════════════════════════════════════════════════════════════
+"""
+[ko] 단축 경로 변환, ACP 인코딩 가능 여부 확인, ANSI 이스케이프 활성화, cmd.exe 없이 argv 파싱.
+[en] short-path conversion, ACP encodability check, ANSI escape enablement, and argv parsing without cmd.exe.
+"""
 
 def _get_short_path(path: str) -> str:
     """
@@ -398,26 +380,34 @@ def _parse_cmdline(cmd: str) -> list[str]:
 # ═══════════════════════════════════════════════════════════════════════════
 # [ko] PART 3. 데이터 모델
 # [en] PART 3. DATA MODELS
+# ═══════════════════════════════════════════════════════════════════════════
 """
-[ko]
+[ko] 데이터 모델
 ConfigLoader / ContextBuilder / CommandExecutor / JobRunner가 공유하는
 데이터클래스. dict/tuple을 느슨하게 주고받는 대신 타입을 명시해두는 것이
 클래스를 분리할 수 있게 하는 전제 조건이며, 향후 플러그인 코드가 기댈 수
 있는 안정적인 계약이 된다.
 
-[en]
+[en] DATA MODELS
 Dataclasses shared across ConfigLoader / ContextBuilder / CommandExecutor /
 JobRunner. Keeping these as explicit types (rather than loose dict/tuple
 passing) is what lets those classes be split apart in the first place, and
 gives future plugin code a stable contract to build against.
 """
-# ═══════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class PresetOption:
+    label: str
+    value: Any = None
+
 
 @dataclass
 class JobParam:
     key: str
     desc: str = ""
     type: str = ""
+    default: Any = None
+    preset: list[PresetOption] = dataclasses.field(default_factory=list)
 
 
 @dataclass
@@ -555,9 +545,6 @@ class BatchSession:
 # [ko] PART 4. CLI 파싱 & ConfigLoader
 # [en] PART 4. CLI & CONFIG LOADER
 # ═══════════════════════════════════════════════════════════════════════════
-
-# [ko] CLI 파싱
-# [en] CLI Parsing
 """
 [ko]
 `params`는 임의 개수의 key=value를 받기 위해 nargs=REMAINDER를 쓴다.
@@ -641,31 +628,210 @@ def parse_args() -> argparse.Namespace:
 # [ko] Named params 파싱
 # [en] Named Params Parsing
 
+# [ko] preset 선택 UI (questionary 없이 ANSI + msvcrt 키보드 입력만으로 구현).
+#      실제 콘솔(stdin/stdout이 tty)에서는 방향키 메뉴 + 프리필 편집 필드를 쓰고,
+#      TTY/ANSI를 지원하지 않는 환경(파이프/리다이렉트 등)에서는 번호 선택으로
+#      자동 폴백한다.
+# [en] The preset selection UI (ANSI + msvcrt keyboard input only — no
+#      questionary). A real console (stdin/stdout are ttys) gets an arrow-key
+#      menu and a prefilled editable field; environments without TTY/ANSI
+#      support (pipes/redirection) automatically fall back to numbered choice.
+
+class _PromptCancelled(Exception):
+    """[ko] Esc 입력 시 현재 작업 전체를 취소하기 위한 내부 신호. / [en] Internal signal to cancel the whole operation when Esc is pressed."""
+
+
+_ANSI_REVERSE = "\x1b[7m"
+_ANSI_RESET   = "\x1b[0m"
+
+
+def _interactive_available() -> bool:
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+def _read_key() -> str:
+    """[ko] 키 1개를 읽어 "up"/"down"/"enter"/"esc" 중 하나 또는 빈 문자열로 정규화한다. / [en] Reads a single keypress and normalizes it to "up"/"down"/"enter"/"esc", or "" for anything else."""
+    ch = msvcrt.getwch()
+    if ch in ("\x00", "\xe0"):  # [ko] 방향키/기능키 2바이트 시퀀스의 첫 바이트 / [en] first byte of a 2-byte arrow/function key sequence
+        ch2 = msvcrt.getwch()
+        return {"H": "up", "P": "down"}.get(ch2, "")
+    if ch == "\r":
+        return "enter"
+    if ch == "\x1b":
+        return "esc"
+    if ch == "\x03":
+        raise KeyboardInterrupt
+    return ""
+
+
+def _select_option_ansi(options: list["PresetOption"], default_idx: int) -> int:
+    _enable_win_ansi()
+    idx = default_idx
+    n = len(options)
+
+    def draw(first: bool) -> None:
+        if not first:
+            sys.stdout.write(f"\x1b[{n}A")
+        for i, opt in enumerate(options):
+            if i == idx:
+                line = f"  >> {_ANSI_REVERSE}{opt.label}{_ANSI_RESET}"
+            else:
+                line = f"     {opt.label}"
+            sys.stdout.write("\x1b[2K" + line + "\n")
+        sys.stdout.flush()
+
+    draw(first=True)
+    while True:
+        key = _read_key()
+        if key == "up":
+            idx = (idx - 1) % n
+            draw(first=False)
+        elif key == "down":
+            idx = (idx + 1) % n
+            draw(first=False)
+        elif key == "enter":
+            return idx
+        elif key == "esc":
+            raise _PromptCancelled()
+
+
+def _select_option_fallback(options: list["PresetOption"], default_idx: int) -> int:
+    for i, opt in enumerate(options):
+        marker = ">>" if i == default_idx else "  "
+        print(f"    {marker} [{i + 1}] {opt.label}")
+    while True:
+        raw = input(f"  {_t('hint_select_fallback', default=default_idx + 1)}").strip()
+        if raw == "":
+            return default_idx
+        if raw.lower() in ("c", "cancel"):
+            raise _PromptCancelled()
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return int(raw) - 1
+        print(_t("err_invalid_choice"))
+
+
+def _select_option(options: list["PresetOption"], default_idx: int) -> int:
+    if _interactive_available():
+        return _select_option_ansi(options, default_idx)
+    return _select_option_fallback(options, default_idx)
+
+
+def _prompt_preset(meta: "JobParam") -> str:
+    print(f"  {meta.desc or meta.key}:")
+    idx = _select_option(meta.preset, _default_preset_index(meta))
+    return str(meta.preset[idx].value)
+
+
+def _read_line_prefilled(prompt: str, default: str) -> str:
+    """
+    [ko]
+    default 문자열이 미리 입력된 상태로 시작하는 편집 가능한 입력 필드.
+    Enter만 누르면 default가 그대로 확정되고, Backspace로 지운 뒤 새로
+    입력할 수도 있다. 좌우 화살표로 중간 커서를 이동하는 것은 지원하지
+    않는다 — 끝에서 추가/삭제만 가능한 의도된 단순화.
+
+    [en]
+    An editable input field that starts pre-filled with `default`. Pressing
+    Enter alone confirms the default as-is; Backspace can erase it to type a
+    replacement. Left/right cursor movement mid-string is not supported —
+    append/delete at the end only, a deliberate simplification.
+    """
+    buf = list(default)
+    sys.stdout.write(prompt + default)
+    sys.stdout.flush()
+    while True:
+        ch = msvcrt.getwch()
+        if ch in ("\x00", "\xe0"):
+            msvcrt.getwch()  # [ko] 방향키 등은 여기서 지원하지 않으므로 두 번째 바이트를 버림 / [en] arrow keys aren't supported here; discard the second byte
+            continue
+        if ch == "\r":
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            return "".join(buf)
+        if ch == "\x1b":
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            raise _PromptCancelled()
+        if ch == "\x03":
+            raise KeyboardInterrupt
+        if ch in ("\x08", "\x7f"):
+            if buf:
+                buf.pop()
+                sys.stdout.write("\b \b")
+                sys.stdout.flush()
+            continue
+        if ch.isprintable():
+            buf.append(ch)
+            sys.stdout.write(ch)
+            sys.stdout.flush()
+
+
+def _prompt_free_text(meta: "JobParam") -> str:
+    default_str = "" if meta.default is None else str(meta.default)
+    label = meta.desc or meta.key
+    interactive = _interactive_available()
+    while True:
+        if interactive:
+            raw = _read_line_prefilled(f"  {label}: ", default_str)
+        else:
+            suffix = f" [{default_str}]" if default_str else ""
+            typed = input(f"  {label}{suffix}: ").strip()
+            raw = typed if typed else default_str
+        if meta.type == "int":
+            if raw.lstrip("-").isdigit():
+                return raw
+            print(_t("err_need_integer"))
+        elif meta.type == "bool":
+            if raw.strip().lower() in (_BOOL_TRUE | _BOOL_FALSE):
+                return raw
+            print(_t("err_need_bool"))
+        else:
+            return raw
+
+
 def prompt_missing_params(job: ResolvedJob, user_params: dict) -> dict:
     declared = job.params
     if not declared:
         return user_params
+    _validate_cli_preset_values(user_params, declared)
     result = dict(user_params)
-    for meta in declared:
-        key = meta.key
-        if not key or key in result:
-            continue
-        while True:
-            raw = input(f"  {meta.desc or key}: ").strip()
-            if meta.type == "int":
-                if raw.lstrip("-").isdigit():
-                    result[key] = raw
-                    break
-                print(_t("err_need_integer"))
-            elif meta.type == "bool":
-                if raw.strip().lower() in (_BOOL_TRUE | _BOOL_FALSE):
-                    result[key] = raw
-                    break
-                print(_t("err_need_bool"))
+    try:
+        for meta in declared:
+            key = meta.key
+            if not key or key in result:
+                continue
+            if meta.preset:
+                result[key] = _prompt_preset(meta)
             else:
-                result[key] = raw
-                break
+                result[key] = _prompt_free_text(meta)
+    except _PromptCancelled:
+        sys.exit(_t("info_cancelled_by_user"))
     return result
+
+
+def _confirm_final_params(job: ResolvedJob, user_params: dict) -> bool:
+    print(_t("label_final_param_summary"))
+    for p in job.params:
+        if not p.key:
+            continue
+        value = user_params.get(p.key)
+        line = f"    {p.key} = {value}"
+        if p.preset:
+            label = _preset_label_for(p, _coerce_single(str(value), p.type))
+            if label is not None:
+                line += f"  ({_t('label_selected_as', label=label)})"
+        print(line)
+    print(f"  {_t('label_confirm_prompt')}")
+    options = [PresetOption(label=_t("label_proceed"), value=True),
+               PresetOption(label=_t("label_cancel"), value=False)]
+    try:
+        idx = _select_option(options, 0)
+    except _PromptCancelled:
+        return False
+    return options[idx].value
 
 
 def parse_params(raw: list[str]) -> dict[str, str]:
@@ -700,6 +866,20 @@ def _to_bool(raw: str) -> bool:
     raise ValueError(f"invalid bool value: {raw!r} (expected one of {sorted(_BOOL_TRUE | _BOOL_FALSE)})")
 
 
+def _coerce_single(raw: str, ptype: str):
+    """[ko] ptype="" 이면 raw를 그대로 반환. int/bool 변환 실패 시 None. / [en] Returns raw unchanged when ptype="". Returns None on int/bool conversion failure."""
+    if not ptype:
+        return raw
+    try:
+        if ptype == "int":
+            return int(raw)
+        if ptype == "bool":
+            return _to_bool(raw)
+    except (ValueError, TypeError):
+        return None
+    return raw
+
+
 def _coerce_params(user_params: dict, declared: list["JobParam"]) -> dict:
     """
     [ko]
@@ -718,14 +898,45 @@ def _coerce_params(user_params: dict, declared: list["JobParam"]) -> dict:
         if meta.key not in result or not meta.type:
             continue
         raw = result[meta.key]
-        try:
-            if meta.type == "int":
-                result[meta.key] = int(raw)
-            elif meta.type == "bool":
-                result[meta.key] = _to_bool(raw)
-        except (ValueError, TypeError):
+        coerced = _coerce_single(raw, meta.type)
+        if coerced is None:
             sys.exit(_t("err_param_type_mismatch", param=meta.key, type=meta.type, value=raw))
+        result[meta.key] = coerced
     return result
+
+
+def _validate_cli_preset_values(user_params: dict, declared: list["JobParam"]) -> None:
+    """[ko] preset이 선언된 파라미터에 CLI 값이 이미 들어오면 preset 범위를 검증한다 (interactive 질문은 건너뛰어도 범위 검증은 수행). / [en] For a param declared with preset, a CLI-supplied value still has its range validated even though the interactive question is skipped."""
+    for meta in declared:
+        if not meta.preset or meta.key not in user_params:
+            continue
+        raw = user_params[meta.key]
+        coerced = _coerce_single(raw, meta.type)
+        if coerced is None:
+            sys.exit(_t("err_param_type_mismatch", param=meta.key, type=meta.type, value=raw))
+        if not any(_value_matches_type(opt.value, meta.type) and opt.value == coerced for opt in meta.preset):
+            allowed = ", ".join(str(opt.value) for opt in meta.preset)
+            sys.exit(_t("err_preset_value_not_allowed", param=meta.key, value=raw, allowed=allowed))
+
+
+def _preset_label_for(meta: "JobParam", value) -> "str | None":
+    """[ko] preset 값 목록에서 (타입까지 일치하는) value에 대응하는 label을 찾는다 — 확인 화면/{key}_label placeholder가 "값과 고른 라벨이 달라 헛갈리는" 문제를 완화하는 데 쓴다. / [en] Finds the label matching value (type-checked) among preset entries — used to mitigate the "the value shown doesn't match the label I picked" confusion in the confirmation screen and the {key}_label placeholder."""
+    for opt in meta.preset:
+        if _value_matches_type(opt.value, meta.type) and opt.value == value:
+            return opt.label
+    return None
+
+
+def _derive_preset_labels(user_params: dict, declared: list["JobParam"]) -> dict:
+    """[ko] 이미 타입 변환된(coerced) user_params를 기준으로 {key}_label placeholder를 만든다 — pre/post {msg}에서 실제 값과 함께 사용자가 고른 라벨을 보여줄 수 있게 한다. / [en] Builds {key}_label placeholders from already-coerced user_params, so pre/post {msg} text can show the label the user picked alongside the actual value."""
+    labels = {}
+    for meta in declared:
+        if not meta.preset or meta.key not in user_params:
+            continue
+        label = _preset_label_for(meta, user_params[meta.key])
+        if label is not None:
+            labels[f"{meta.key}_label"] = label
+    return labels
 
 
 # [ko] TOML 문법 오류 메시지 개선
@@ -961,8 +1172,12 @@ class ConfigLoader:
             stderr_quiet = job.get("stderr_quiet", g.get("stderr_quiet", False)),
             # [ko] 비표준 키는 placeholder 기본값으로 — CLI 파라미터가 있으면 덮어씀
             # [en] Non-standard keys become placeholder defaults — overridden by CLI params if given
-            params       = [JobParam(key=p.get("key", ""), desc=p.get("desc", ""), type=p.get("type", ""))
-                             for p in job.get("params", [])],
+            params       = [JobParam(
+                                key=p.get("key", ""), desc=p.get("desc", ""), type=p.get("type", ""),
+                                default=p.get("default", None),
+                                preset=[PresetOption(label=o.get("label", ""), value=o.get("value"))
+                                        for o in p.get("preset", [])],
+                            ) for p in job.get("params", [])],
             defaults     = {k: str(v) for k, v in job.items() if k not in _JOB_STANDARD_KEYS},
             notes_per_file = 0,
             uses_output    = False,
@@ -988,28 +1203,68 @@ class ConfigLoader:
         return resolved
 
 
+# [ko] params[].preset 검증 (tcbp.py 런타임 fail-fast와 validate_config.py 사전
+#      진단이 이 함수를 그대로 공유한다 — load_plugin()/_JOB_STANDARD_KEYS와 동일한
+#      "계약을 한 곳에만 정의" 패턴).
+# [en] Validates params[].preset. Shared as-is between tcbp.py's runtime
+#      fail-fast and validate_config.py's authoring-time diagnostics — the
+#      same "define the contract once" pattern as load_plugin()/_JOB_STANDARD_KEYS.
+
+def _value_matches_type(value: Any, ptype: str) -> bool:
+    if ptype == "int":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if ptype == "bool":
+        return isinstance(value, bool)
+    return isinstance(value, str)
+
+
+def _validate_param_presets(declared: list["JobParam"], job_name: str = "") -> list[str]:
+    errors = []
+    for p in declared:
+        if not p.preset:
+            continue
+        for opt in p.preset:
+            if not _value_matches_type(opt.value, p.type):
+                errors.append(_t("err_preset_value_type_mismatch", job=job_name, param=p.key,
+                                  label=opt.label, value=opt.value, type=p.type or "string"))
+        if p.default is not None and not any(
+            _value_matches_type(opt.value, p.type) and opt.value == p.default for opt in p.preset
+        ):
+            errors.append(_t("err_preset_default_not_in_preset", job=job_name, param=p.key, default=p.default))
+    return errors
+
+
+def _default_preset_index(meta: "JobParam") -> int:
+    """[ko] default 미지정 시 첫 번째 preset 항목을 초기 선택으로 사용한다. / [en] With no default declared, the first preset entry is the initial selection."""
+    if meta.default is not None:
+        for i, opt in enumerate(meta.preset):
+            if _value_matches_type(opt.value, meta.type) and opt.value == meta.default:
+                return i
+    return 0
+
+
 def _require_essentials(job: ResolvedJob, plugin_info: "PluginInfo | None" = None, job_name: str = "") -> None:
     """
     [ko]
-    Job을 resolve한 직후 1회 실행하는 최소 fail-fast 가드. config 저작 실수가
-    명확한 오류 대신 알아보기 힘든 실행 오류로 번지는 걸 막는다. 예를 들어
-    빈 {tool} placeholder는 아무 일도 안 일어나는 게 아니라, 치환된 명령이
-    "convert ..."로 시작하게 되는데 Windows에는 실제로 자체 convert.exe(FAT->NTFS
-    변환용)가 있어서 엉뚱하게 그게 실행될 수 있다. 더 깊은 저작 진단(undefined
-    placeholder, 오탈자 키, 존재하지 않는 tool 경로, dry-run 샘플 검사 등)은 전부
-    validate_config.py에 있다 — 여기서는 tcbp.py가 말이 안 되는 걸 실행하지
-    않도록 막는 최소한만 한다.
+    Job을 resolve한 직후 1회 실행하는 최소 fail-fast 가드. 
+    config 저작 실수가 명확한 오류 대신 알아보기 힘든 실행 오류로 번지는 걸 막는다.
+    예를 들어 빈 {tool} placeholder는 아무 일도 안 일어나는 게 아니라, 
+    치환된 명령이 "convert ..."로 시작하게 되는데 Windows에는 실제로 자체 
+    convert.exe(FAT->NTFS 변환용)가 있어서 엉뚱하게 그게 실행될 수 있다.
+    더 깊은 저작 진단(undefined placeholder, 오탈자 키, 존재하지 않는 tool 경로,
+    dry-run 샘플 검사 등)은 전부 validate_config.py에 있다 —
+    여기서는 tcbp.py가 말이 안 되는 걸 실행하지 않도록 막는 최소한만 한다.
 
     [en]
-    Minimal fail-fast guard, run once right after resolving a Job, so a
-    config authoring mistake doesn't turn into a confusing runtime failure
-    instead of a clear one. For example: an empty {tool} placeholder isn't a
-    no-op — the substituted command starts with "convert ...", and Windows
-    actually ships its own convert.exe (FAT->NTFS conversion), so the tool
-    would attempt to run *that* instead of failing cleanly. Deeper authoring
-    diagnostics (undefined placeholders, typo'd keys, unreachable tool paths,
-    dry-run sample checks, ...) live entirely in validate_config.py — this is
-    only the minimum needed for tcbp.py to refuse to run something nonsensical.
+    Minimal fail-fast guard, run once right after resolving a Job,
+    so a config authoring mistake doesn't turn into a confusing runtime failure
+    instead of a clear one. 
+    For example: an empty {tool} placeholder isn't a no-op — the substituted command
+    starts with "convert ...", and Windows actually ships its own convert.exe
+    (FAT->NTFS conversion), so the tool would attempt to run *that* instead of failing cleanly.
+    Deeper authoring diagnostics (undefined placeholders, typo'd keys, unreachable tool paths,
+    dry-run sample checks, ...) live entirely in validate_config.py
+    — this is only the minimum needed for tcbp.py to refuse to run something nonsensical.
     Also refuses a FileSession plugin declared thread_safe=False (5.10) when
     matched with parallel=true + max_workers>1 — running it anyway would
     silently risk a race condition instead of failing cleanly.
@@ -1042,9 +1297,13 @@ def _require_essentials(job: ResolvedJob, plugin_info: "PluginInfo | None" = Non
             and job.parallel and job.max_workers > 1):
         sys.exit(_t("err_plugin_not_thread_safe_parallel", job=job_name, name=job.plugin_name))
 
+    preset_errors = _validate_param_presets(job.params, job_name)
+    if preset_errors:
+        sys.exit("\n".join(preset_errors))
 
-# [ko] 플러그인 로딩 (5.3, 5.5)
-# [en] Plugin Loading (5.3, 5.5)
+
+# [ko] 플러그인 로딩
+# [en] Plugin Loading
 # [ko] ./plugin/<name>.py로의 매핑은 결정론적이다 — 별도 탐색/등록 메커니즘 없음.
 #      tcbp.py 런타임과 validate_config.py가 이 두 함수를 그대로 공유해, 플러그인
 #      로딩 로직이 두 곳에서 따로 구현되며 어긋나는 일이 없게 한다.
@@ -1221,7 +1480,46 @@ class SafeDict(dict):
     def __missing__(self, key: str) -> str:
         return "{" + key + "}"
 
+
+# [ko] {key.label} / {key.value} — dot 표기 문법 설탕.
+#      Python str.format()의 진짜 "{name.attr}" 속성 접근(getattr) 프로토콜을 쓰는 게
+#      아니다 — 그러려면 context 값 자체를 .label 속성을 가진 int/str 서브클래스로 감싸야
+#      하는데, bool은 파이썬에서 서브클래싱이 안 되어 preset type="bool" 파라미터를 처리할
+#      수 없다. 대신 format_map()에 넘기기 전에 정규식으로 {key.label}→{key_label},
+#      {key.value}→{key}로 먼저 텍스트 치환한다 — context의 실제 값 타입은 그대로 두고,
+#      순수 문자열 전처리 계층 하나만 얹는 방식.
+# [en] {key.label} / {key.value} — dot-notation syntactic sugar. This does NOT use
+#      Python str.format()'s real "{name.attr}" attribute-access (getattr) protocol —
+#      that would require wrapping context values in int/str subclasses carrying a
+#      .label attribute, and bool can't be subclassed in Python, so preset
+#      type="bool" params couldn't be handled that way. Instead, before handing the
+#      template to format_map(), a regex rewrites {key.label}->{key_label} and
+#      {key.value}->{key} as plain text — the actual context value types are left
+#      untouched; this is just a text-preprocessing layer on top.
+_DOT_SUGAR_RE = re.compile(r"\{(\w+)\.(label|value)\}")
+
+
+def _expand_dot_sugar(template: str, context: dict) -> str:
+    def repl(m: re.Match) -> str:
+        key, attr = m.group(1), m.group(2)
+        lookup = f"{key}_label" if attr == "label" else key
+        if lookup in context:
+            return "{" + lookup + "}"
+        # [ko] 못 찾으면 SafeDict와 같은 "원문 유지" 결과를 내야 하는데, 그냥 "{key.attr}"를
+        #      그대로 두면 뒤이은 format_map()이 이걸 진짜 속성 접근으로 다시 파싱해 버려서
+        #      (context[key]가 있으면) AttributeError로 죽는다 — 그래서 중괄호를 이스케이프해
+        #      format_map()에게는 순수 텍스트로만 보이게 한다.
+        # [en] When not found, the result should read the same as SafeDict's "leave as
+        #      literal" — but simply keeping "{key.attr}" as-is would let the following
+        #      format_map() re-parse it as a real attribute access (crashing with
+        #      AttributeError if context[key] exists) — so the braces are escaped to
+        #      make it pure literal text to format_map().
+        return "{{" + key + "." + attr + "}}"
+    return _DOT_SUGAR_RE.sub(repl, template)
+
+
 def substitute(template: str, context: dict) -> str:
+    template = _expand_dot_sugar(template, context)
     return template.format_map(SafeDict(context))
 
 
@@ -1827,6 +2125,7 @@ class JobRunner:
 
     def run(self, files: list[Path], user_params: dict) -> None:
         user_params = _coerce_params(user_params, self._job.params)
+        user_params = {**user_params, **_derive_preset_labels(user_params, self._job.params)}
         self._plugin_params = {**self._job.defaults, **user_params}
 
         task_id     = _gen_tmp_id()
@@ -2182,7 +2481,6 @@ def _pause_on_error(msg: str) -> None:
 def main() -> None:
     _logger: logging.Logger | None = None
     _job:    ResolvedJob | None    = None
-    _set_lang(_prescan_lang(sys.argv[1:]))  # [ko] --help 자체도 올바른 언어로 보이도록 / [en] so --help itself shows in the right language
     try:
         args        = parse_args()
         _set_lang(args.lang)
@@ -2220,7 +2518,10 @@ def main() -> None:
         if args.dry_run:
             _logger.info(_t("info_dry_run_mode"))
 
-        user_params = prompt_missing_params(_job, user_params)
+        needs_prompt = any(p.key and p.key not in user_params for p in _job.params)
+        user_params  = prompt_missing_params(_job, user_params)
+        if needs_prompt and not _confirm_final_params(_job, user_params):
+            sys.exit(_t("info_cancelled_by_user"))
         files       = resolve_input_files(args.filelist, _job, args.job)
 
         mode = f"parallel (max_workers={_job.max_workers})" if _job.parallel else "sequential"

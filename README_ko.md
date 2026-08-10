@@ -209,6 +209,60 @@ commands = [
 - CLI에서 같은 이름의 파라미터를 전달하면 job 정의 값을 덮어씁니다. (CLI 우선)
 - 경로값은 자동 따옴표 처리가 되지 않으므로, 명령 내에서 `\"{key}\"` 로 감싸야 합니다.
 
+### 4.2.2 파라미터 preset — 선택 UI
+`params` 항목에 `preset`(라벨+값 목록)을 선언하면, 자유 입력 대신 방향키로 값을 고르는 선택 UI가 자동으로 뜹니다. 외부 패키지(questionary 등) 없이 ANSI 이스케이프 + 키보드 입력만으로 구현되어 있습니다.
+
+```toml
+params = [{
+    key="ch_bitrate", desc="음질(비트레이트)", type="int", default=128,
+    preset=[
+        { label="128kbps", value=64 },
+        { label="192kbps", value=96 },
+        { label="256kbps", value=128 },
+        { label="320kbps", value=160 },
+    ],
+}]
+```
+
+**조작법 (실제 콘솔 실행 시)**
+- ↑/↓ 방향키로 항목 이동, `Enter`로 확정합니다.
+- 현재 선택된 항목은 `>> Label명` 접두사와 함께 ANSI 반전 색상으로 표시됩니다.
+- `default`에 해당하는 항목이 초기 선택 상태입니다. 아무 키도 누르지 않고 바로 `Enter`를 누르면 `default`가 그대로 확정됩니다.
+- `Esc`를 누르면 현재 작업 전체가 취소되고, 취소 메시지와 함께 종료됩니다.
+
+**`default` 규칙**
+- `default`는 반드시 `preset`의 `value` 목록 안에 있어야 하며(값·타입 모두 일치), 그렇지 않으면 설정 오류로 즉시 종료됩니다.
+- `default`를 아예 생략하면 오류가 아니라, `preset` 목록의 **첫 번째 항목**을 초기 선택값으로 사용합니다.
+- `preset`의 각 `value` 타입은 해당 파라미터의 `type`(`int`/`bool`/생략=문자열)과 일치해야 합니다.
+
+**CLI 값과의 관계**
+- CLI로 `key=value`가 이미 전달된 파라미터는 대화형 질문을 건너뜁니다.
+- 단, `preset`이 있는 파라미터에 CLI 값이 들어오면 `preset` 범위 안에 있는지는 그대로 검증합니다 — 범위 밖 값이면 오류로 종료됩니다.
+- `preset`이 없고 `default`만 있는 파라미터는 기존처럼 자유 입력이지만, 프롬프트에 `default`가 미리 채워진 채로 시작해 `Enter`만 눌러도 그 값이 확정됩니다(실제 콘솔 실행 시). `default`도 없으면 100% 기존 동작 그대로입니다.
+
+**TTY/ANSI 미지원 환경 (파이프/리다이렉트 등)**
+콘솔이 아니어서 방향키 UI를 쓸 수 없는 환경에서는 번호를 입력하는 방식으로 자동 폴백합니다.
+```
+    >> [1] 128kbps
+       [2] 192kbps
+       [3] 256kbps
+       [4] 320kbps
+  번호 선택 (Enter=기본값 3, c=취소):
+```
+`Enter`만 누르면 기본값(`>>` 표시된 항목)이 그대로 확정되고, `c`를 입력하면 취소됩니다.
+
+**실행 직전 최종 확인**
+`params`가 선언된 Job이라도, 필요한 값이 모두 CLI `key=value`로 주어졌다면 아무 화면도 추가되지 않습니다(완전한 하위호환). 하나라도 사용자가 직접 입력(preset 선택 포함)해야 했던 경우에만, 실제 실행 직전에 최종 파라미터 요약과 진행/취소 선택 화면이 나타납니다.
+
+**값과 라벨이 달라 헛갈리는 문제 완화**
+`preset`의 `value`가 사용자에게 익숙한 숫자와 다를 수 있습니다(예: `ch_bitrate`는 채널당 전송율이라 "128kbps"를 고르면 실제 값은 64). 이런 경우 아래 두 가지를 함께 쓰는 것을 권장합니다.
+1. **라벨 문구에 실제 값을 명시** — `label="128kbps (64kbps/ch)"`처럼 실제 저장되는 값의 의미를 라벨 자체에 적어둡니다.
+2. **`{key}_label` placeholder 활용** — `preset`이 선언된 파라미터마다 `{key}_label`(사용자가 고른 라벨 텍스트)이 자동 생성되어 `pre`/`post`/`commands`의 `{ msg = "..." }`에서 쓸 수 있습니다.
+   ```toml
+   { msg = "   Bitrate : {ch_bitrate_label} -> {ch_bitrate} kbps/channel" },
+   ```
+   또한 실행 직전 최종 확인 화면에도 `preset`으로 선택된 파라미터는 값과 함께 고른 라벨이 자동으로 병기됩니다: `ch_bitrate = 64  (선택: 128kbps (64kbps/ch))`.
+
 ### 4.3 치환자(Placeholder) 일람
 | Placeholder | 설명 | 예시 |
 |---|---|---|
@@ -673,7 +727,25 @@ commands = [
 ]
 ```
 
-## 11. 버전 이력
+## 11. 테크니컬 노트 : Placeholder `{key.label}` / `{key.value}` 문법 설탕
+4.2.2절에서 설명한 것처럼, `preset`이 있는 파라미터는 실제로 저장되는 값(`value`)과 사용자가 고른 라벨(`label`)이 다를 수 있습니다(예: `ch_bitrate`는 채널당 전송율이라 "128kbps"를 고르면 실제 값은 64). 이 값·라벨 쌍을 `pre`/`post`/`commands`의 `{ msg = "..." }`에서 함께 보여줄 때 쓰라고 `{key}_label`이라는 placeholder를 자동 생성해두었지만, 그 이름만 봐서는 `{key}`로부터 파생된 것인지 알아보기 어렵다는 문제가 있었습니다. 이를 보완하기 위해 `{key.label}` / `{key.value}` 표기를 추가로 지원합니다 — 관계가 표기 자체에서 드러나도록 한 것입니다.
+
+**중요: 이건 Python의 진짜 객체 속성 접근이 아닙니다.** Python `str.format()`의 `"{name.attr}"` 문법은 실제로 `context[name]`이라는 객체를 먼저 찾은 뒤, 그 객체에 대해 `getattr(obj, "attr")`을 수행합니다. `{ch_bitrate.label}`을 이 방식 그대로 지원하려면 `context["ch_bitrate"]`에 들어가는 값 자체를 `.label` 속성을 가진 `int`/`str` 서브클래스로 감싸야 하는데, **`bool`은 파이썬에서 서브클래싱이 금지**되어 있어(`TypeError: type 'bool' is not an acceptable base type`) `type="bool"`인 preset 파라미터를 이 방식으로는 지원할 수 없습니다.
+
+그래서 `tcbp.py`의 [substitute()](tcbp.py)는 실제 속성 접근 프로토콜을 쓰는 대신, `str.format_map()`을 호출하기 **전에** 정규식으로 텍스트를 먼저 바꿔치기합니다 ([_expand_dot_sugar()](tcbp.py)):
+- `{key.label}` → context에 `key_label`이 있으면 `{key_label}`로, 없으면 `{{key.label}}`(이스케이프된 리터럴)로 치환
+- `{key.value}` → context에 `key`가 있으면 `{key}`로, 없으면 마찬가지로 이스케이프된 리터럴로 치환
+
+context 안의 실제 값 타입(`int`/`bool`/`str`)은 전혀 건드리지 않고, 순수 텍스트 전처리 계층 하나만 얹는 방식이라 `bool` 문제 자체가 발생하지 않습니다.
+
+**못 찾았을 때 이스케이프가 필요한 이유** — 처음 구현에서는 매칭되는 값이 없으면 그냥 원본 텍스트 `"{key.label}"`을 그대로 두려고 했지만, 그러면 뒤이어 실행되는 `format_map()`이 이 문자열을 또다시 진짜 `"{name.attr}"` 속성 접근으로 파싱해버립니다. 만약 `key`는 context에 있지만(예: `size`) 그 값에 `.label` 속성이 없다면(예: 평범한 `int`), `AttributeError: 'int' object has no attribute 'label'`로 전체 치환이 죽어버립니다. 이를 막기 위해 못 찾은 경우 `{{key.label}}`처럼 중괄호를 이스케이프해 `format_map()`에게는 순수 텍스트로만 보이게 만들고, 최종 출력에서는 `{key.label}`이 리터럴 그대로 남습니다 — [SafeDict](tcbp.py)의 "정의되지 않은 placeholder는 원문 유지" 철학과 동일한 결과를 안전하게 재현한 것입니다.
+
+**적용 범위**
+- `.label`/`.value` 두 가지 속성만 지원하는 좁은 규칙이며, 임의의 속성 접근을 지원하는 범용 템플릿 엔진이 아닙니다.
+- 기존에 문서화된 flat 이름(`{key}_label`)도 내부 구현 그대로 남아 있어 계속 유효합니다 — 완전한 하위호환.
+- `validate_config.py`의 미정의 placeholder 검사기(`_extract_placeholders`)는 원래부터 `.`/`[...]` 뒤를 잘라내고 베이스 이름만 검사하므로, `{ch_bitrate.label}` 표기도 별도 수정 없이 `ch_bitrate`(이미 선언된 파라미터)로 인식되어 오탐이 나지 않습니다.
+
+## 12. 버전 이력
 - **v1.0:** 초도 배포판
 - **v1.1:** 멀티 프로세싱에서 먼저 끝나는 결과를 먼저 출력하도록 수정 (기존에는 뒤에 시작한 파일은 먼저 끝나도 앞 파일 결과 출력할 때까지 출력을 보류했음)
 - **v1.2:** `output_rule` 키값을 `output`으로 이름 변경 (`{output}` placeholder와 일치성을 위해)
@@ -690,3 +762,9 @@ commands = [
 - **v2.3:** 폴더(디렉토리) 입력 모드 추가 — `input_mode = "directory"` Job은 FileList 인자로 목록 파일 대신 폴더 경로를 받아, `recursive`(하위 폴더 탐색)와 `include`(글롭 패턴 필터) 설정에 따라 파일 목록을 자동 생성한다.
 - **v2.4:** thread_safe 메타 정보를 플러그인에 추가, 플러그인 측에서는 호출시의 스레드 모드를 재확인, validate_config.py에도 검증루틴 추가. 디자인 가이드라인 보완.
 - **v2.41:** 번들 플러그인 group_md5의 그룹핑 알고리즘 개선 (플러그인 버전 v1.0 -> v1.1)
+- **v2.5:** `params` 항목에 `preset`(라벨+값 목록) 선언을 추가
+  - 자유 입력 대신 방향키로 값을 고르는 선택 UI를 questionary 없이 ANSI + 키보드 입력만으로 제공(4.2.2절).
+  - `default`가 preset 값 목록 밖이면 설정 오류, CLI 값도 preset 범위를 그대로 검증. 
+  - TTY/ANSI 미지원 환경은 번호 선택으로 자동 폴백
+  - 사용자가 값을 직접 입력해야 했던 경우에만 실행 직전 최종 파라미터 확인 화면 표시(CLI로 전부 채워진 기존 Job은 동작 무변화)
+  - preset의 값과 사용자가 고른 라벨이 달라 헛갈리는 문제를 완화하기 위해, 최종 확인 화면에 고른 라벨을 값과 함께 병기하고 placeholder에 `{key.label}`와 `{key.value}`의 placeholder를 사용하여 `pre`/`post` 메시지 등에서 쓸 수 있게 함

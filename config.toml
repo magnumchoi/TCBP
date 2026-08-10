@@ -52,14 +52,14 @@ desc        = "Convert images to JPG format"
 tool        = "gm"
 output      = "{dir}/{base}.jpg"
 parallel    = true
-max_workers = 8
+max_workers = 4
 pre = [
     { msg = "-------------------------------------------------------------------------------" },
     { msg = "   Convert images JPG format (PARALLEL mode, {max_workers} workers)" },
     { msg = "-------------------------------------------------------------------------------" },
 ]
 commands = [
-    "{tool} convert -quality 95 {input} {output}",
+    "{tool} convert -quality 100 {input} {output}",
 ]
 post = [
     { msg = "-------------------------------------------------------------------------------" },
@@ -312,13 +312,17 @@ stderr_quiet = true
 parallel    = true
 max_workers = 6
 params = [
-    { key="ch_bitrate", desc="bitrate per channel (kbps, e.g. 64)", type="int" },
+    { key="ch_bitrate", desc="bitrate per channel (kbps)", type="int", default=128, preset=[
+        { label="128kbps (64kbps/ch)",  value=64 },
+        { label="192kbps (96kbps/ch)",  value=96 },
+        { label="256kbps (128kbps/ch)", value=128 },
+        { label="320kbps (160kbps/ch)", value=160 },
+    ] },
 ]
-
 pre = [
     { msg = "-------------------------------------------------------------------------------" },
     { msg = "   MP3 Conversion (Helix MP3 encoder)" },
-    { msg = "   Bitrate : {ch_bitrate} kbps/channel" },
+    { msg = "   Bitrate : {ch_bitrate.label} = {ch_bitrate.value} kbps/channel" },
     { msg = "-------------------------------------------------------------------------------" },
 ]
 commands = [

@@ -287,3 +287,319 @@ def test_resolve_input_files_list_mode_reads_list_file(tmp_path):
     files = tcbp.resolve_input_files(str(listfile), job, "TestJob")
 
     assert files == [target]
+
+
+# [ko] params[].preset — 값 타입/타입 매칭 (신규)
+# [en] params[].preset — value type matching (new)
+
+@pytest.mark.parametrize("value,ptype,expected", [
+    (64, "int", True),
+    (True, "int", False),   # [ko] bool은 int의 서브클래스지만 int로 인정하지 않는다 / [en] bool is an int subclass but must not count as int
+    ("64", "int", False),
+    (True, "bool", True),
+    (1, "bool", False),
+    ("abc", "", True),
+    (1, "", False),
+])
+def test_value_matches_type(value, ptype, expected):
+    assert tcbp._value_matches_type(value, ptype) is expected
+
+
+def _preset_param(**overrides):
+    base = dict(
+        key="ch_bitrate", desc="", type="int", default=128,
+        preset=[
+            tcbp.PresetOption(label="128kbps", value=64),
+            tcbp.PresetOption(label="192kbps", value=96),
+            tcbp.PresetOption(label="256kbps", value=128),
+            tcbp.PresetOption(label="320kbps", value=160),
+        ],
+    )
+    base.update(overrides)
+    return tcbp.JobParam(**base)
+
+
+def test_validate_param_presets_ok_returns_no_errors():
+    assert tcbp._validate_param_presets([_preset_param()]) == []
+
+
+def test_validate_param_presets_type_mismatch_reported():
+    p = _preset_param(default=None, preset=[tcbp.PresetOption(label="bad", value="64")])  # [ko] type="int"인데 preset 값이 문자열 / [en] type="int" but the preset value is a string
+    errors = tcbp._validate_param_presets([p], job_name="MyJob")
+    assert len(errors) == 1
+    assert "ch_bitrate" in errors[0] and "MyJob" in errors[0]
+
+
+def test_validate_param_presets_default_not_in_preset_reported():
+    p = _preset_param(default=999)
+    errors = tcbp._validate_param_presets([p])
+    assert len(errors) == 1
+    assert "999" in errors[0]
+
+
+def test_validate_param_presets_missing_default_is_not_an_error():
+    p = _preset_param(default=None)
+    assert tcbp._validate_param_presets([p]) == []
+
+
+def test_validate_param_presets_ignores_params_without_preset():
+    p = tcbp.JobParam(key="size", type="int", default=999)  # default 999 without preset must not be flagged
+    assert tcbp._validate_param_presets([p]) == []
+
+
+def test_default_preset_index_finds_matching_default():
+    p = _preset_param(default=96)
+    assert tcbp._default_preset_index(p) == 1
+
+
+def test_default_preset_index_falls_back_to_first_when_default_missing():
+    p = _preset_param(default=None)
+    assert tcbp._default_preset_index(p) == 0
+
+
+def test_default_preset_index_falls_back_to_first_when_default_not_found():
+    p = _preset_param(default=999)
+    assert tcbp._default_preset_index(p) == 0
+
+
+# [ko] _coerce_single (14.1 _coerce_params 리팩터)
+# [en] _coerce_single (refactored out of _coerce_params, 14.1)
+
+def test_coerce_single_untyped_returns_raw_unchanged():
+    assert tcbp._coerce_single("hello", "") == "hello"
+
+
+def test_coerce_single_int_success():
+    assert tcbp._coerce_single("128", "int") == 128
+
+
+def test_coerce_single_int_failure_returns_none():
+    assert tcbp._coerce_single("nope", "int") is None
+
+
+def test_coerce_single_bool_success():
+    assert tcbp._coerce_single("true", "bool") is True
+
+
+def test_coerce_single_bool_failure_returns_none():
+    assert tcbp._coerce_single("maybe", "bool") is None
+
+
+# [ko] CLI 값 우선 + preset 범위 검증 (검증 및 테스트 요구 4, 3)
+# [en] CLI value priority + preset range validation (test requirements 3, 4)
+
+def test_validate_cli_preset_values_accepts_in_range_value():
+    p = _preset_param()
+    tcbp._validate_cli_preset_values({"ch_bitrate": "96"}, [p])  # [ko] 예외 없이 통과해야 함 / [en] must pass without raising
+
+
+def test_validate_cli_preset_values_rejects_out_of_range_value():
+    p = _preset_param()
+    with pytest.raises(SystemExit):
+        tcbp._validate_cli_preset_values({"ch_bitrate": "999"}, [p])
+
+
+def test_validate_cli_preset_values_rejects_type_mismatch():
+    p = _preset_param()
+    with pytest.raises(SystemExit):
+        tcbp._validate_cli_preset_values({"ch_bitrate": "not_a_number"}, [p])
+
+
+def test_validate_cli_preset_values_ignores_params_without_preset():
+    p = tcbp.JobParam(key="size", type="int")
+    tcbp._validate_cli_preset_values({"size": "anything_goes_here"}, [p])  # [ko] preset 없으면 검사 안 함 / [en] no preset means no check
+
+
+# [ko] 폴백(번호 선택) UI — TTY/ANSI 미지원 환경 (요구사항 6, 7, 취소 흐름)
+# [en] Fallback (numbered) UI — TTY/ANSI-unsupported environments (requirements 6, 7, cancel flow)
+
+def test_select_option_fallback_enter_accepts_default(monkeypatch, capsys):
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    options = [tcbp.PresetOption(label="A", value="a"), tcbp.PresetOption(label="B", value="b")]
+    assert tcbp._select_option_fallback(options, default_idx=1) == 1
+
+
+def test_select_option_fallback_picks_numbered_choice(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda prompt="": "2")
+    options = [tcbp.PresetOption(label="A", value="a"), tcbp.PresetOption(label="B", value="b")]
+    assert tcbp._select_option_fallback(options, default_idx=0) == 1
+
+
+def test_select_option_fallback_cancel_token_raises(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda prompt="": "c")
+    options = [tcbp.PresetOption(label="A", value="a")]
+    with pytest.raises(tcbp._PromptCancelled):
+        tcbp._select_option_fallback(options, default_idx=0)
+
+
+def test_select_option_fallback_invalid_then_valid_reprompts(monkeypatch):
+    responses = iter(["9", "1"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
+    options = [tcbp.PresetOption(label="A", value="a")]
+    assert tcbp._select_option_fallback(options, default_idx=0) == 0
+
+
+def test_prompt_missing_params_skips_cli_supplied_keys(monkeypatch):
+    monkeypatch.setattr(tcbp, "_interactive_available", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(AssertionError("should not prompt")))
+    job = _make_resolved_job(params=[tcbp.JobParam(key="size", type="int")])
+    result = tcbp.prompt_missing_params(job, {"size": "1024"})
+    assert result == {"size": "1024"}
+
+
+def test_prompt_missing_params_sequential_multi_param(monkeypatch):
+    monkeypatch.setattr(tcbp, "_interactive_available", lambda: False)
+    responses = iter(["", "custom"])  # [ko] preset은 Enter=default, free-text는 직접 입력 / [en] preset: Enter=default; free-text: typed value
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
+    job = _make_resolved_job(params=[_preset_param(), tcbp.JobParam(key="label", type="")])
+
+    result = tcbp.prompt_missing_params(job, {})
+
+    assert result["ch_bitrate"] == "128"  # [ko] default(128kbps 항목의 value) / [en] the default (the 128kbps entry's value)
+    assert result["label"] == "custom"
+
+
+def test_prompt_missing_params_cancel_exits(monkeypatch):
+    monkeypatch.setattr(tcbp, "_interactive_available", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "c")
+    job = _make_resolved_job(params=[_preset_param()])
+    with pytest.raises(SystemExit):
+        tcbp.prompt_missing_params(job, {})
+
+
+def test_prompt_free_text_non_interactive_enter_accepts_default(monkeypatch):
+    monkeypatch.setattr(tcbp, "_interactive_available", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    meta = tcbp.JobParam(key="size", type="int", default=1024)
+    assert tcbp._prompt_free_text(meta) == "1024"
+
+
+# [ko] preset label 병기 — 값(64)과 사용자가 고른 라벨("128kbps")이 달라서 헛갈리는 문제 완화
+# [en] Preset label pairing — mitigates the confusion where the stored value (64)
+#      differs from the label the user picked ("128kbps")
+
+def test_preset_label_for_finds_matching_label():
+    p = _preset_param()
+    assert tcbp._preset_label_for(p, 96) == "192kbps"
+
+
+def test_preset_label_for_returns_none_when_not_found():
+    p = _preset_param()
+    assert tcbp._preset_label_for(p, 999) is None
+
+
+def test_derive_preset_labels_adds_key_label_for_coerced_value():
+    p = _preset_param()  # [ko] preset 값들이 int로 선언됨 — 이미 _coerce_params를 거친 것으로 간주 / [en] preset values are declared as int — assumes user_params already went through _coerce_params
+    labels = tcbp._derive_preset_labels({"ch_bitrate": 96}, [p])
+    assert labels == {"ch_bitrate_label": "192kbps"}
+
+
+def test_derive_preset_labels_ignores_params_without_preset():
+    p = tcbp.JobParam(key="size", type="int")
+    assert tcbp._derive_preset_labels({"size": 1024}, [p]) == {}
+
+
+# [ko] {key.label} / {key.value} dot 표기 문법 설탕 — 실제 getattr이 아니라
+#      format_map() 이전의 텍스트 치환 계층이라는 점을 검증한다.
+# [en] {key.label} / {key.value} dot-notation syntactic sugar — verifies this
+#      is a text-preprocessing layer before format_map(), not real getattr.
+
+def test_substitute_dot_label_resolves_to_derived_label():
+    ctx = {"ch_bitrate": 64, "ch_bitrate_label": "128kbps (64kbps/ch)"}
+    assert tcbp.substitute("Bitrate: {ch_bitrate.label}", ctx) == "Bitrate: 128kbps (64kbps/ch)"
+
+
+def test_substitute_dot_value_matches_plain_placeholder():
+    ctx = {"ch_bitrate": 64, "ch_bitrate_label": "128kbps (64kbps/ch)"}
+    assert tcbp.substitute("{ch_bitrate.value}", ctx) == tcbp.substitute("{ch_bitrate}", ctx) == "64"
+
+
+def test_substitute_dot_label_left_literal_when_no_preset_label():
+    ctx = {"size": 1024}  # [ko] preset이 없으므로 size_label이 애초에 존재하지 않음 / [en] no preset, so size_label was never derived
+    assert tcbp.substitute("{size.label}", ctx) == "{size.label}"
+
+
+def test_substitute_dot_sugar_does_not_affect_unrelated_placeholders():
+    ctx = {"ch_bitrate": 64, "ch_bitrate_label": "128kbps (64kbps/ch)", "name": "a.mp3"}
+    result = tcbp.substitute("{name}: {ch_bitrate.label} ({ch_bitrate.value}kbps/ch)", ctx)
+    assert result == "a.mp3: 128kbps (64kbps/ch) (64kbps/ch)"
+
+
+def test_substitute_flat_label_placeholder_still_works_directly():
+    # [ko] 하위호환 — dot 표기 도입 이전에 문서화된 flat 이름도 그대로 유효해야 함
+    # [en] backward compatibility — the flat name documented before dot notation was added must still work
+    ctx = {"ch_bitrate": 64, "ch_bitrate_label": "128kbps (64kbps/ch)"}
+    assert tcbp.substitute("{ch_bitrate_label}", ctx) == "128kbps (64kbps/ch)"
+
+
+def test_confirm_final_params_shows_selected_label_alongside_value(monkeypatch, capsys):
+    monkeypatch.setattr(tcbp, "_interactive_available", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    job = _make_resolved_job(params=[_preset_param()])
+    tcbp._confirm_final_params(job, {"ch_bitrate": "96"})  # [ko] raw string — CLI/프롬프트에서 온 값과 동일한 형태 / [en] raw string — matches the shape of a value coming from CLI/prompt
+    out = capsys.readouterr().out
+    assert "ch_bitrate = 96" in out
+    assert "192kbps" in out
+
+
+def test_confirm_final_params_cancel_selection_returns_false(monkeypatch, capsys):
+    monkeypatch.setattr(tcbp, "_interactive_available", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "2")  # [ko] [1] 진행 [2] 취소 중 2번 선택 / [en] pick option [2] (Cancel) out of [1] Proceed / [2] Cancel
+    job = _make_resolved_job(params=[tcbp.JobParam(key="size", type="int")])
+    assert tcbp._confirm_final_params(job, {"size": "1024"}) is False
+
+
+def test_confirm_final_params_proceed_default_returns_true(monkeypatch):
+    monkeypatch.setattr(tcbp, "_interactive_available", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")  # [ko] Enter = 기본값(Proceed) / [en] Enter = default (Proceed)
+    job = _make_resolved_job(params=[tcbp.JobParam(key="size", type="int")])
+    assert tcbp._confirm_final_params(job, {"size": "1024"}) is True
+
+
+# [ko] ANSI(방향키) UI — msvcrt.getwch()를 모킹해 실제 콘솔 없이 검증
+# [en] ANSI (arrow-key) UI — verified without a real console by mocking msvcrt.getwch()
+
+def _fake_getwch(keys):
+    it = iter(keys)
+    return lambda: next(it)
+
+
+def test_select_option_ansi_navigates_down_and_confirms(monkeypatch):
+    monkeypatch.setattr(tcbp, "_enable_win_ansi", lambda: None)
+    monkeypatch.setattr(tcbp.msvcrt, "getwch", _fake_getwch(["\xe0", "P", "\xe0", "P", "\r"]))  # down, down, enter
+    options = [tcbp.PresetOption(label="A", value="a"), tcbp.PresetOption(label="B", value="b"),
+               tcbp.PresetOption(label="C", value="c")]
+    assert tcbp._select_option_ansi(options, default_idx=0) == 2
+
+
+def test_select_option_ansi_wraps_up_from_first(monkeypatch):
+    monkeypatch.setattr(tcbp, "_enable_win_ansi", lambda: None)
+    monkeypatch.setattr(tcbp.msvcrt, "getwch", _fake_getwch(["\xe0", "H", "\r"]))  # up, enter
+    options = [tcbp.PresetOption(label="A", value="a"), tcbp.PresetOption(label="B", value="b")]
+    assert tcbp._select_option_ansi(options, default_idx=0) == 1  # [ko] 첫 항목에서 위로 이동하면 마지막 항목으로 순환 / [en] moving up from the first entry wraps to the last
+
+
+def test_select_option_ansi_esc_raises_cancelled(monkeypatch):
+    monkeypatch.setattr(tcbp, "_enable_win_ansi", lambda: None)
+    monkeypatch.setattr(tcbp.msvcrt, "getwch", _fake_getwch(["\x1b"]))
+    options = [tcbp.PresetOption(label="A", value="a")]
+    with pytest.raises(tcbp._PromptCancelled):
+        tcbp._select_option_ansi(options, default_idx=0)
+
+
+def test_read_line_prefilled_enter_confirms_default(monkeypatch, capsys):
+    monkeypatch.setattr(tcbp.msvcrt, "getwch", _fake_getwch(["\r"]))
+    assert tcbp._read_line_prefilled("size: ", "1024") == "1024"
+
+
+def test_read_line_prefilled_backspace_then_retype(monkeypatch):
+    # [ko] 프리필된 "1024"에서 두 글자(끝에서부터 "4","2") 지우고 "9"를 추가 → "109" (끝에서만 편집 가능한 의도된 단순화)
+    # [en] Backspace twice on the prefilled "1024" (removes "4" then "2" from the end) then append "9" -> "109" (append/delete-at-end only, a deliberate simplification)
+    monkeypatch.setattr(tcbp.msvcrt, "getwch", _fake_getwch(["\x08", "\x08", "9", "\r"]))
+    assert tcbp._read_line_prefilled("size: ", "1024") == "109"
+
+
+def test_read_line_prefilled_esc_raises_cancelled(monkeypatch):
+    monkeypatch.setattr(tcbp.msvcrt, "getwch", _fake_getwch(["\x1b"]))
+    with pytest.raises(tcbp._PromptCancelled):
+        tcbp._read_line_prefilled("size: ", "1024")

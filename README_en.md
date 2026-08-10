@@ -209,6 +209,60 @@ commands = [
 - Passing a CLI parameter with the same name overrides the value defined in the job. (CLI takes priority.)
 - Path values are not automatically quoted, so you must wrap them with `\"{key}\"` inside the command.
 
+### 4.2.2 Parameter `preset` — Selection UI
+Declaring `preset` (a list of label+value entries) on a `params` entry replaces free-text input with an automatic arrow-key selection UI — implemented with ANSI escapes + keyboard input only, no external package (e.g. questionary).
+
+```toml
+params = [{
+    key="ch_bitrate", desc="Audio quality (bitrate)", type="int", default=128,
+    preset=[
+        { label="128kbps", value=64 },
+        { label="192kbps", value=96 },
+        { label="256kbps", value=128 },
+        { label="320kbps", value=160 },
+    ],
+}]
+```
+
+**Controls (in a real console)**
+- Move between entries with ↑/↓, confirm with `Enter`.
+- The currently highlighted entry is shown with a `>> Label` prefix and ANSI reverse-video coloring.
+- The entry matching `default` is the initial selection. Pressing `Enter` immediately, with no navigation, confirms `default` as-is.
+- Pressing `Esc` cancels the entire operation and exits with a clear cancellation message.
+
+**`default` rules**
+- `default` must be present among `preset`'s `value` entries (both value and type must match) — otherwise the run exits immediately with a config error.
+- Omitting `default` entirely is not an error — the **first** `preset` entry is used as the initial selection instead.
+- Each `preset` `value`'s type must match the param's declared `type` (`int`/`bool`/omitted = string).
+
+**Interaction with CLI values**
+- A param already supplied via CLI `key=value` skips its interactive question.
+- However, if a param with `preset` receives a CLI value, its range is still validated against `preset` — a value outside the range exits with an error.
+- A param with `default` but no `preset` still uses free-text input as before, but the prompt starts pre-filled with `default` (in a real console) so pressing `Enter` alone confirms it. With neither `preset` nor `default`, behavior is 100% unchanged from before.
+
+**Environments without TTY/ANSI support (pipes/redirection, etc.)**
+Where the arrow-key UI can't be used because the process isn't attached to a real console, it automatically falls back to numbered selection.
+```
+    >> [1] 128kbps
+       [2] 192kbps
+       [3] 256kbps
+       [4] 320kbps
+  Select number (Enter=default 3, c=cancel):
+```
+Pressing `Enter` alone confirms the default (marked `>>`); typing `c` cancels.
+
+**Final confirmation before execution**
+Even for a Job with `params` declared, if every required value was already supplied via CLI `key=value`, no extra screen appears at all (fully backward compatible). Only when at least one value had to be entered manually (including a preset selection) does a final parameter summary with a Proceed/Cancel choice appear right before execution.
+
+**Mitigating "the value doesn't match the label I picked" confusion**
+A `preset`'s `value` can differ from the number the user actually recognizes (e.g. `ch_bitrate` is a per-channel rate, so picking "128kbps" actually stores 64). When that's the case, using the following two together is recommended.
+1. **Spell out the real value in the label text** — e.g. `label="128kbps (64kbps/ch)"`, so the label itself states what the stored value means.
+2. **Use the `{key}_label` placeholder** — for every param declared with `preset`, `{key}_label` (the text of the label the user picked) is generated automatically and can be used inside `pre`/`post`/`commands`' `{ msg = "..." }` entries.
+   ```toml
+   { msg = "   Bitrate : {ch_bitrate_label} -> {ch_bitrate} kbps/channel" },
+   ```
+   The final confirmation screen also automatically pairs the picked label with the value for any param selected via `preset`: `ch_bitrate = 64  (selected: 128kbps (64kbps/ch))`.
+
 ### 4.3 Placeholder Reference
 | Placeholder | Description | Example |
 |---|---|---|
@@ -673,7 +727,25 @@ commands = [
 ]
 ```
 
-## 11. Version History
+## 11. Technical Note: Placeholder `{key.label}` / `{key.value}` Syntactic Sugar
+As explained in section 4.2.2, a param declared with `preset` can have a stored value (`value`) that differs from the label (`label`) the user picked (e.g. `ch_bitrate` is a per-channel rate, so picking "128kbps" actually stores 64). A `{key}_label` placeholder is auto-generated so this value/label pair can be shown together in `pre`/`post`/`commands`' `{ msg = "..." }`, but its name alone doesn't make it obvious that it's derived from `{key}`. To address that, `{key.label}` / `{key.value}` notation is also supported — so the relationship is visible in the notation itself.
+
+**Important: this is not real Python attribute access.** Python `str.format()`'s `"{name.attr}"` syntax actually looks up the object `context[name]` first, then performs `getattr(obj, "attr")` on it. Supporting `{ch_bitrate.label}` this way for real would require wrapping the value stored in `context["ch_bitrate"]` in an `int`/`str` subclass carrying a `.label` attribute — but **`bool` cannot be subclassed in Python** (`TypeError: type 'bool' is not an acceptable base type`), so `type="bool"` preset params couldn't be supported this way.
+
+So [substitute()](tcbp.py) in `tcbp.py` doesn't use the real attribute-access protocol at all. Instead, **before** calling `str.format_map()`, it rewrites the text with a regex ([_expand_dot_sugar()](tcbp.py)):
+- `{key.label}` → `{key_label}` if `key_label` exists in the context, otherwise `{{key.label}}` (an escaped literal)
+- `{key.value}` → `{key}` if `key` exists in the context, otherwise likewise an escaped literal
+
+The actual value types (`int`/`bool`/`str`) inside the context are never touched — this is purely a text-preprocessing layer, so the `bool` problem never arises in the first place.
+
+**Why the escaping is needed when nothing matches** — the first implementation, when no match was found, simply left the original text `"{key.label}"` as-is. But the following `format_map()` call would then re-parse that same string as a real `"{name.attr}"` attribute access. If `key` exists in the context (e.g. `size`) but its value has no `.label` attribute (e.g. a plain `int`), the whole substitution would crash with `AttributeError: 'int' object has no attribute 'label'`. To prevent this, an unmatched case is rewritten to an escaped form like `{{key.label}}` so `format_map()` sees pure literal text, and the final output correctly keeps `{key.label}` as a literal — safely reproducing the same result as [SafeDict](tcbp.py)'s "leave an undefined placeholder as-is" philosophy.
+
+**Scope**
+- Only two attributes, `.label` and `.value`, are supported — this is a narrow rule, not a general-purpose templating engine with arbitrary attribute access.
+- The previously documented flat name (`{key}_label`) remains valid as-is under the hood — fully backward compatible.
+- `validate_config.py`'s undefined-placeholder checker (`_extract_placeholders`) already strips everything after `.`/`[...]` and checks only the base name, so `{ch_bitrate.label}` notation is recognized as `ch_bitrate` (an already-declared param) without any extra change, and doesn't trigger a false positive.
+
+## 12. Version History
 - **v1.0:** Initial release
 - **v1.1:** Fixed multi-processing so that whichever result finishes first is printed first (previously, a file that started later but finished earlier would have its output held back until the earlier file's output was printed)
 - **v1.2:** Renamed the `output_rule` key to `output` (for consistency with the `{output}` placeholder)
@@ -690,3 +762,5 @@ commands = [
 - **v2.3:** Added directory (folder) input mode — a Job with `input_mode = "directory"` accepts a folder path instead of a list file as its FileList argument, and automatically builds the file list according to `recursive` (subfolder search) and `include` (glob-pattern filter) settings.
 - **v2.4:** Added `thread_safe` metadata to plugins; plugins now re-confirm the calling thread mode themselves; added a corresponding validation routine to `validate_config.py`. Design guideline improvements.
 - **v2.41:** Improved the grouping algorithm of the bundled `group_md5` plugin (plugin version v1.0 -> v1.1).
+- **v2.5:** Added `preset` (a label+value list) to `params` entries — replaces free-text input with an arrow-key selection UI, implemented with ANSI + keyboard input only, no questionary (section 4.2.2). A `default` outside the preset's values is a config error; CLI-supplied values also have their preset range validated. Environments without TTY/ANSI support fall back to numbered selection automatically. The final parameter confirmation screen right before execution only appears when the user had to enter a value manually (an existing Job fully supplied via CLI sees no behavior change). To mitigate confusion when a preset's value differs from the label the user picked, the final confirmation screen now pairs the picked label with the value, and a `{key}_label` placeholder is generated automatically for use in `pre`/`post` messages, etc.
+- **v2.51:** Added `{key.label}` / `{key.value}` dot-notation syntactic sugar for the `{key}_label` placeholder (section 11) — a text-preprocessing rewrite before `format_map()`, not real attribute access, and fully backward compatible with the existing flat name.

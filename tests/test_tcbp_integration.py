@@ -75,13 +75,38 @@ params = [
     { key="backup",   type="bool" },
     { key="eachline", type="bool" },
 ]
+
+[jobs.GroupMD5Preset]
+desc   = "test job (params[].preset)"
+plugin = "group_md5"
+output = ""
+params = [
+    { key="chunk_size", desc="chunk size", type="int", default=64, preset=[
+        { label="8",  value=8 },
+        { label="16", value=16 },
+        { label="32", value=32 },
+        { label="64", value=64 },
+    ] },
+    { key="bom", desc="strip BOM", type="bool" },
+]
+
+[jobs.GroupMD5BadPreset]
+desc   = "test job (preset default not in preset values -> config error)"
+plugin = "group_md5"
+output = ""
+params = [
+    { key="chunk_size", type="int", default=999, preset=[
+        { label="8",  value=8 },
+        { label="64", value=64 },
+    ] },
+]
 """
 
 
-def _run(*args, cwd=None):
+def _run(*args, cwd=None, stdin_input=None):
     return subprocess.run(
         [sys.executable, *args], capture_output=True, text=True,
-        encoding="utf-8", errors="replace", cwd=cwd or ROOT,
+        encoding="utf-8", errors="replace", cwd=cwd or ROOT, input=stdin_input,
     )
 
 
@@ -192,3 +217,73 @@ def test_tcbp_list_mode_rejects_directory_argument(tmp_path, mini_config):
                 "--config", str(mini_config))
     assert proc.returncode != 0
     assert "input_mode" in proc.stdout + proc.stderr
+
+
+# [ko] params[].preset — 선택 UI / 최종 확인 (신규)
+#      subprocess의 stdin은 tty가 아니므로 자동으로 번호 선택 폴백 경로를 탄다.
+# [en] params[].preset — selection UI / final confirmation (new)
+#      subprocess stdin is never a tty, so these automatically take the
+#      numbered-fallback path.
+
+@pytest.fixture()
+def preset_listfile(tmp_path):
+    f = tmp_path / "sample.bin"
+    f.write_text("hi", encoding="utf-8")
+    listfile = tmp_path / "list.txt"
+    listfile.write_text(str(f), encoding="utf-8")
+    return listfile
+
+
+@pytest.mark.integration
+def test_tcbp_preset_default_config_error_exits(tmp_path, mini_config, preset_listfile):
+    proc = _run(str(TCBP_PY), "GroupMD5BadPreset", str(preset_listfile), "--config", str(mini_config))
+    assert proc.returncode != 0
+    assert "preset" in (proc.stdout + proc.stderr).lower()
+
+
+@pytest.mark.integration
+def test_tcbp_preset_cli_value_out_of_range_rejected(tmp_path, mini_config, preset_listfile):
+    proc = _run(str(TCBP_PY), "GroupMD5Preset", str(preset_listfile), "chunk_size=999", "bom=false",
+                "--config", str(mini_config))
+    assert proc.returncode != 0
+    assert "999" in proc.stdout + proc.stderr
+
+
+@pytest.mark.integration
+def test_tcbp_preset_cli_priority_skips_prompt_and_confirm(tmp_path, mini_config, preset_listfile):
+    proc = _run(str(TCBP_PY), "GroupMD5Preset", str(preset_listfile), "chunk_size=32", "bom=false",
+                "--config", str(mini_config), "--dry-run")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "최종 파라미터 확인" not in proc.stdout  # [ko] 값이 전부 CLI로 주어졌으므로 확인 화면이 뜨지 않아야 함 / [en] all values came via CLI, so no confirmation screen should appear
+
+
+@pytest.mark.integration
+def test_tcbp_preset_sequential_prompt_shows_summary_and_proceeds(tmp_path, mini_config, preset_listfile):
+    # [ko] chunk_size: Enter(=default 64), bom: "false" 입력, 최종 확인: Enter(=진행)
+    # [en] chunk_size: Enter (=default 64), bom: type "false", final confirm: Enter (=proceed)
+    proc = _run(str(TCBP_PY), "GroupMD5Preset", str(preset_listfile),
+                "--config", str(mini_config), "--dry-run", stdin_input="\nfalse\n\n")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "최종 파라미터 확인" in proc.stdout
+    assert "chunk_size = 64" in proc.stdout
+    assert "bom = false" in proc.stdout
+
+
+@pytest.mark.integration
+def test_tcbp_preset_cancel_via_c_token_aborts(tmp_path, mini_config, preset_listfile):
+    proc = _run(str(TCBP_PY), "GroupMD5Preset", str(preset_listfile),
+                "--config", str(mini_config), "--dry-run", stdin_input="c\n")
+    assert proc.returncode != 0
+    assert "취소되었습니다" in proc.stdout + proc.stderr
+    assert not list(tmp_path.glob("*.md5"))
+
+
+@pytest.mark.integration
+def test_tcbp_preset_final_confirm_cancel_skips_execution(tmp_path, mini_config, preset_listfile):
+    # [ko] chunk_size/bom 모두 default 확정 후, 최종 확인 화면에서 "2"(취소) 선택
+    # [en] confirm defaults for chunk_size/bom, then pick "2" (Cancel) at the final confirmation screen
+    proc = _run(str(TCBP_PY), "GroupMD5Preset", str(preset_listfile),
+                "--config", str(mini_config), stdin_input="\nfalse\n2\n")
+    assert proc.returncode != 0
+    assert "취소되었습니다" in proc.stdout + proc.stderr
+    assert not list(tmp_path.glob("*.md5"))

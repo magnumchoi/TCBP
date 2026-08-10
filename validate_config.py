@@ -41,6 +41,7 @@ from tcbp import (
     _JOB_STANDARD_KEYS,
     load_plugin,
     PluginInfo,
+    _validate_param_presets,
 )
 from tcbp import _set_lang as _set_tcbp_lang
 
@@ -308,7 +309,13 @@ def _check_plugin(raw_job: dict, resolved: ResolvedJob) -> tuple[list[str], list
 
 
 def _check_placeholders(resolved: ResolvedJob) -> tuple[list[str], set[str]]:
-    dynamic_keys = set(resolved.defaults) | {p.key for p in resolved.params if p.key}
+    # [ko] {key}_label은 preset이 선언된 파라미터마다 JobRunner.run()이 런타임에
+    #      생성하는 파생 placeholder (_derive_preset_labels) — 정적 진단에서도 알려진 것으로 취급한다.
+    # [en] {key}_label is a derived placeholder JobRunner.run() generates at
+    #      runtime for every preset-declared param (_derive_preset_labels) —
+    #      treat it as known here too, for static diagnostics.
+    dynamic_keys = (set(resolved.defaults) | {p.key for p in resolved.params if p.key}
+                     | {f"{p.key}_label" for p in resolved.params if p.key and p.preset})
     file_known   = _FILE_CTX_BUILTIN_KEYS | {"output"} | dynamic_keys
     output_known = _FILE_CTX_BUILTIN_KEYS | dynamic_keys
     global_known = _GLOBAL_CTX_BUILTIN_KEYS | dynamic_keys
@@ -536,6 +543,7 @@ def validate_job(job_name: str, raw_job: dict, resolved: ResolvedJob, sample_fil
     report.infos.extend(key_infos)
 
     report.warnings.extend(_check_param_types(resolved))
+    report.errors.extend(_validate_param_presets(resolved.params, job_name))
     report.warnings.extend(_check_scalar_types(raw_job, f"jobs.{job_name}"))
 
     report.errors.extend(plugin_errors)
