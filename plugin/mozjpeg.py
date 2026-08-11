@@ -223,6 +223,7 @@ def _process(input_path: str, output_path: str, params: dict) -> None:
 
 @plugin(
     name="mozjpeg",
+    contract_version="1.0",
     version="1.0",
     author="Magnum Choi",
     session_type="file",

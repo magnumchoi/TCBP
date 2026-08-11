@@ -28,6 +28,7 @@ Subprocess-level reproduction of --strict/slot overflow isn't done here —
 that logic itself is already covered by test_tcbp_core.py's _make_log_fn
 unit tests (also verified manually in Stage 1).
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -104,9 +105,11 @@ params = [
 
 
 def _run(*args, cwd=None, stdin_input=None):
+    env = {**os.environ, "TCBP_TEST": "1"}
     return subprocess.run(
         [sys.executable, *args], capture_output=True, text=True,
         encoding="utf-8", errors="replace", cwd=cwd or ROOT, input=stdin_input,
+        env=env,
     )
 
 

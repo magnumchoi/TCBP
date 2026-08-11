@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import tcbp
+from tcbp import TcbpError
 
 
 # [ko] _to_bool / _coerce_params (14.1)
@@ -49,13 +50,13 @@ def test_coerce_params_only_declared_keys_converted():
 
 def test_coerce_params_invalid_bool_exits():
     declared = [tcbp.JobParam(key="backup", type="bool")]
-    with pytest.raises(SystemExit):
+    with pytest.raises(TcbpError):
         tcbp._coerce_params({"backup": "maybe"}, declared)
 
 
 def test_coerce_params_invalid_int_exits():
     declared = [tcbp.JobParam(key="size", type="int")]
-    with pytest.raises(SystemExit):
+    with pytest.raises(TcbpError):
         tcbp._coerce_params({"size": "not_a_number"}, declared)
 
 
@@ -154,6 +155,34 @@ def test_batch_result_defaults_are_independent_lists():
     assert r1.succeeded == ["a"]
     assert r2.succeeded == []  # [ko] r1의 값이 r2 기본값에 새어들지 않아야 함 / [en] r1's value must not leak into r2's default
 
+
+# [ko] _check_contract_version — 플러그인 계약 버전 호환성 정책
+# [en] _check_contract_version — plugin contract-version compatibility policy
+
+def test_check_contract_version_same_as_current_ok():
+    tcbp._check_contract_version("dummy", tcbp.CONTRACT_VERSION)  # [ko] 예외 없이 통과해야 함 / [en] must pass without raising
+
+
+def test_check_contract_version_major_mismatch_raises():
+    with pytest.raises(TcbpError):
+        tcbp._check_contract_version("dummy", "2.0")
+
+
+def test_check_contract_version_minor_ahead_raises():
+    with pytest.raises(TcbpError):
+        tcbp._check_contract_version("dummy", "1.99")
+
+
+def test_check_contract_version_invalid_format_raises():
+    with pytest.raises(TcbpError):
+        tcbp._check_contract_version("dummy", "not-a-version")
+
+
+def test_check_contract_version_missing_minor_raises():
+    with pytest.raises(TcbpError):
+        tcbp._check_contract_version("dummy", "1")
+
+
 # [ko] 모듈 자기-별칭 (플러그인 로딩용)
 # [en] Module self-aliasing (for plugin loading)
 
@@ -242,7 +271,7 @@ def test_enumerate_directory_empty_include_matches_everything(tmp_path):
 
 def test_enumerate_directory_no_matches_exits(tmp_path):
     (tmp_path / "note.txt").write_text("x")
-    with pytest.raises(SystemExit):
+    with pytest.raises(TcbpError):
         tcbp.enumerate_directory(tmp_path, recursive=False, include=["*.bmp"])
 
 
@@ -261,19 +290,19 @@ def test_resolve_input_files_directory_mode_rejects_file_argument(tmp_path):
     f.write_text(str(tmp_path / "a.bmp"))
     job = _make_resolved_job(input_mode="directory")
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(TcbpError):
         tcbp.resolve_input_files(str(f), job, "TestJob")
 
 
 def test_resolve_input_files_directory_mode_rejects_missing_path(tmp_path):
     job = _make_resolved_job(input_mode="directory")
-    with pytest.raises(SystemExit):
+    with pytest.raises(TcbpError):
         tcbp.resolve_input_files(str(tmp_path / "does_not_exist"), job, "TestJob")
 
 
 def test_resolve_input_files_list_mode_rejects_directory_argument(tmp_path):
     job = _make_resolved_job()  # [ko] input_mode 기본값 "list" / [en] default input_mode is "list"
-    with pytest.raises(SystemExit):
+    with pytest.raises(TcbpError):
         tcbp.resolve_input_files(str(tmp_path), job, "TestJob")
 
 
@@ -395,13 +424,13 @@ def test_validate_cli_preset_values_accepts_in_range_value():
 
 def test_validate_cli_preset_values_rejects_out_of_range_value():
     p = _preset_param()
-    with pytest.raises(SystemExit):
+    with pytest.raises(TcbpError):
         tcbp._validate_cli_preset_values({"ch_bitrate": "999"}, [p])
 
 
 def test_validate_cli_preset_values_rejects_type_mismatch():
     p = _preset_param()
-    with pytest.raises(SystemExit):
+    with pytest.raises(TcbpError):
         tcbp._validate_cli_preset_values({"ch_bitrate": "not_a_number"}, [p])
 
 
@@ -463,7 +492,7 @@ def test_prompt_missing_params_cancel_exits(monkeypatch):
     monkeypatch.setattr(tcbp, "_interactive_available", lambda: False)
     monkeypatch.setattr("builtins.input", lambda prompt="": "c")
     job = _make_resolved_job(params=[_preset_param()])
-    with pytest.raises(SystemExit):
+    with pytest.raises(TcbpError):
         tcbp.prompt_missing_params(job, {})
 
 

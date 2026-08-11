@@ -42,8 +42,8 @@ from tcbp import (
     load_plugin,
     PluginInfo,
     _validate_param_presets,
+    TcbpError,
 )
-from tcbp import _set_lang as _set_tcbp_lang
 
 # [ko] tcbp.py의 _SCRIPT_DIR 주석 참고 — Nuitka --onefile 빌드에서는 Path(__file__)을 믿을 수 없고, sys.argv[0]은 믿을 수 있다.
 # [en] See tcbp.py's _SCRIPT_DIR comment — Path(__file__) is unreliable under a Nuitka --onefile build, sys.argv[0] is not.
@@ -53,93 +53,22 @@ _SCRIPT_DIR = Path(sys.argv[0]).resolve().parent
 # ═══════════════════════════════════════════════════════════════════════════
 """
 [ko]
-I18N — 자체 메시지 카탈로그 (이 도구 자신이 출력하는 문구만). import한 tcbp 함수가
-내는 메시지(TOML 문법 오류, "job 없음")는 tcbp 자신의 카탈로그를 쓰므로,
-아래 _set_tcbp_lang()으로 언어를 동기화한다.
+I18N — messages 패키지의 공유 카탈로그를 그대로 쓴다. 이 도구 자신의 문구는
+messages/ko.py·en.py에 vc_ 접두사로 들어있고(tcbp.py의 help_job/cli_description
+등과 이름이 겹치지 않도록), import한 tcbp 함수가 내는 메시지(TOML 문법 오류,
+"job 없음")도 같은 카탈로그를 쓰므로 더 이상 언어를 별도로 동기화할 필요가 없다.
 
 [en]
-I18N — own message catalog (this tool's own output only; messages coming
-from imported tcbp functions — TOML syntax errors, "job not found" — use
-tcbp's own catalog, kept in sync via _set_tcbp_lang() below).
+I18N — reuses the messages package's shared catalog as-is. This tool's own
+strings live in messages/ko.py·en.py under a vc_ prefix (so they don't
+collide with tcbp.py's own keys like help_job/cli_description), and messages
+coming from imported tcbp functions (TOML syntax errors, "job not found")
+already use that same catalog, so there is no longer a second language state
+to keep in sync.
 """
 # ═══════════════════════════════════════════════════════════════════════════
 
-_LANG = "ko"
-
-_MESSAGES: dict[str, dict[str, str]] = {
-    "ko": {
-        "cli_description":   "config.toml 검증 도구 (tcbp.py 실행 전 사전 점검용)",
-        "cli_epilog_header": "예시:",
-        "help_config":       "검증할 config.toml 경로",
-        "help_job":          "검증할 Job 이름 (생략 시 전체 Job 검증)",
-        "help_sample":       "dry-run 검증에 사용할 샘플 파일 목록 텍스트 파일",
-        "help_lang":         "출력 언어 (ko/en)",
-        "err_no_jobs":       "[ERROR] config에 정의된 Job이 없습니다.",
-        "vc_missing_required_key": "필수 Key 누락",
-        "vc_missing_tool_hint":    "또는 global.tools 에 등록된 tool 이름이 필요합니다",
-        "vc_undefined_placeholder": "정의되지 않은 Placeholder",
-        "vc_suggestion_maybe":     "혹시",
-        "vc_unknown_key":          "알 수 없는 Key",
-        "vc_did_you_mean":         "혹시 다음을 의미하셨습니까?",
-        "vc_unused_key":           "사용되지 않는 Key",
-        "vc_no_tools_registered":  "global.tools 에 등록된 tool이 없습니다",
-        "vc_tool_path_empty":      "Tool 경로가 비어 있습니다",
-        "vc_tool_path_missing":    "Tool 경로를 찾을 수 없습니다",
-        "vc_unknown_param_type":   "알 수 없는 param type (\"int\"/\"bool\" 또는 생략만 허용)",
-        "vc_type_mismatch":        "타입 불일치: {label} ({expected} 기대, {got} 발견)",
-        "vc_bad_enum_value":       "허용되지 않는 값",
-        "vc_output_overwrites_input": "output이 input과 같은 파일을 가리킬 수 있습니다 (덮어쓰기 위험)",
-        "vc_output_overwrites_input_ext": "output이 input과 같은 파일을 가리킬 수 있습니다 (입력 확장자가 \"{ext}\"인 경우 덮어쓰기 위험 — output이 그 확장자를 고정으로 강제함)",
-        "vc_sample_error":         "Sample dry-run 오류",
-        "vc_tool_and_plugin_both": "tool과 plugin을 동시에 지정할 수 없습니다",
-        "vc_batch_parallel_ignored": "BatchSession 플러그인은 parallel 처리를 지원하지 않습니다 (parallel=true는 무시됨)",
-        "vc_recursive_include_ignored": "recursive/include는 input_mode=\"directory\"인 Job에서만 적용됩니다 (무시됨)",
-        "vc_plugin_not_thread_safe_parallel": "플러그인 '{name}'은(는) thread_safe=False로 선언되어 있어 parallel=true(+max_workers>1)와 함께 쓸 수 없습니다",
-        "vc_summary_line":  "Job {jobs}개 검증 — 총 오류 {errors}개  총 경고 {warnings}개  총 정보 {infos}개",
-    },
-    "en": {
-        "cli_description":   "config.toml validator (pre-flight check before running tcbp.py)",
-        "cli_epilog_header": "Examples:",
-        "help_config":       "Path to the config.toml to validate",
-        "help_job":          "Job to validate (validates all Jobs if omitted)",
-        "help_sample":       "Sample file-list text file to use for dry-run checks",
-        "help_lang":         "Output language (ko/en)",
-        "err_no_jobs":       "[ERROR] No Jobs defined in this config.",
-        "vc_missing_required_key": "Missing required key",
-        "vc_missing_tool_hint":    "or a tool name registered in global.tools is required",
-        "vc_undefined_placeholder": "Undefined placeholder",
-        "vc_suggestion_maybe":     "Did you mean",
-        "vc_unknown_key":          "Unknown key",
-        "vc_did_you_mean":         "Did you mean:",
-        "vc_unused_key":           "Unused key",
-        "vc_no_tools_registered":  "No tools registered in global.tools",
-        "vc_tool_path_empty":      "Tool path is empty",
-        "vc_tool_path_missing":    "Tool path not found",
-        "vc_unknown_param_type":   "Unknown param type (only \"int\"/\"bool\" or omitted is recognized)",
-        "vc_type_mismatch":        "Type mismatch: {label} (expected {expected}, got {got})",
-        "vc_bad_enum_value":       "Disallowed value",
-        "vc_output_overwrites_input": "output may resolve to the same file as input (overwrite risk)",
-        "vc_output_overwrites_input_ext": "output may resolve to the same file as input (overwrite risk when the input extension is \"{ext}\" — output forces that fixed extension)",
-        "vc_sample_error":         "Sample dry-run error",
-        "vc_tool_and_plugin_both": "tool and plugin cannot both be set",
-        "vc_batch_parallel_ignored": "BatchSession plugins do not support parallel processing (parallel=true is ignored)",
-        "vc_recursive_include_ignored": "recursive/include only apply to Jobs with input_mode=\"directory\" (ignored)",
-        "vc_plugin_not_thread_safe_parallel": "Plugin '{name}' is declared thread_safe=False and cannot be used with parallel=true (+max_workers>1)",
-        "vc_summary_line":  "Validated {jobs} job(s) — {errors} error(s), {warnings} warning(s), {infos} info",
-    },
-}
-
-
-def _t(key: str, **kwargs) -> str:
-    template = _MESSAGES.get(_LANG, _MESSAGES["ko"]).get(key) or _MESSAGES["ko"].get(key, key)
-    return template.format(**kwargs) if kwargs else template
-
-
-def _set_lang(lang: str | None) -> None:
-    global _LANG
-    if lang in _MESSAGES:
-        _LANG = lang
-    _set_tcbp_lang(lang)  # [ko] tcbp 자신의 카탈로그(TOML 오류, job 없음)도 함께 동기화 / [en] keep tcbp's own catalog (TOML errors, job-not-found) in sync
+from messages import _t, _set_lang
 
 
 def _prescan_lang(argv: list[str]) -> str | None:
@@ -289,7 +218,7 @@ def _check_plugin(raw_job: dict, resolved: ResolvedJob) -> tuple[list[str], list
         warnings.append(f"{_t('vc_unused_key')}: commands")
     try:
         run_fn = load_plugin(resolved.plugin_name)
-    except RuntimeError as exc:
+    except TcbpError as exc:
         errors.append(str(exc))
         return errors, warnings, None
     plugin_info = run_fn.plugin_info
@@ -567,20 +496,20 @@ def validate_job(job_name: str, raw_job: dict, resolved: ResolvedJob, sample_fil
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="validate_config",
-        description=_t("cli_description"),
+        description=_t("vc_cli_description"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
-{_t("cli_epilog_header")}
+{_t("vc_cli_epilog_header")}
   python validate_config.py config.toml
   python validate_config.py config.toml --job ResizeImages
   python validate_config.py config.toml --sample list.txt
   python validate_config.py config.toml --job Conv2PNG --sample list.txt --lang en
         """,
     )
-    parser.add_argument("config", help=_t("help_config"))
-    parser.add_argument("--job", default=None, help=_t("help_job"))
-    parser.add_argument("--sample", default=None, metavar="filelist", help=_t("help_sample"))
-    parser.add_argument("--lang", choices=["ko", "en"], default=None, help=_t("help_lang"))
+    parser.add_argument("config", help=_t("vc_help_config"))
+    parser.add_argument("--job", default=None, help=_t("vc_help_job"))
+    parser.add_argument("--sample", default=None, metavar="filelist", help=_t("vc_help_sample"))
+    parser.add_argument("--lang", choices=["ko", "en"], default=None, help=_t("vc_help_lang"))
     return parser.parse_args()
 
 
@@ -590,21 +519,31 @@ def main() -> None:
     _set_lang(args.lang)
 
     loader = ConfigLoader(args.config)
-    config = loader.load()  # [ko] TOML 문법 오류는 여기서 이미 사용자 친화적으로 sys.exit됨 / [en] a TOML syntax error already exits here with a user-friendly message
-    if args.lang is None:
-        _set_lang(config.get("global", {}).get("lang"))
+    try:
+        # [ko] config 로드 실패(TOML 문법 오류 등), job 미존재, 샘플 파일 목록 없음은
+        #      전부 ConfigLoader/load_file_list가 TcbpError로 던진다(10장) — main() 한 곳에서
+        #      잡아 사용자 친화적인 sys.exit 메시지로 변환한다 (tcbp.py main()과 동일한 패턴).
+        # [en] Config load failure (e.g. TOML syntax error), a missing job, and a missing
+        #      sample file list are all raised as TcbpError by ConfigLoader/load_file_list
+        #      (Chapter 10) — caught in one place in main() and turned into a user-friendly
+        #      sys.exit message (the same pattern as tcbp.py's main()).
+        config = loader.load()
+        if args.lang is None:
+            _set_lang(config.get("global", {}).get("lang"))
 
-    jobs = config.get("jobs", {})
-    job_names = [args.job] if args.job else list(jobs.keys())
-    if not job_names:
-        sys.exit(_t("err_no_jobs"))
+        jobs = config.get("jobs", {})
+        job_names = [args.job] if args.job else list(jobs.keys())
+        if not job_names:
+            sys.exit(_t("vc_err_no_jobs"))
 
-    sample_files = load_file_list(args.sample) if args.sample else None
+        sample_files = load_file_list(args.sample) if args.sample else None
 
-    reports = [validate_global(config)]
-    for name in job_names:
-        resolved = loader.resolve_job(name)  # [ko] job 없으면 여기서 사용자 친화적으로 sys.exit됨 / [en] a missing job already exits here with a user-friendly message
-        reports.append(validate_job(name, jobs[name], resolved, sample_files))
+        reports = [validate_global(config)]
+        for name in job_names:
+            resolved = loader.resolve_job(name)
+            reports.append(validate_job(name, jobs[name], resolved, sample_files))
+    except TcbpError as e:
+        sys.exit(str(e))
 
     total_errors   = sum(len(r.errors) for r in reports)
     total_warnings = sum(len(r.warnings) for r in reports)

@@ -38,11 +38,40 @@
 
 ### 3.2 파일 구성
 ```filelist
-tcbp.py             실행 엔진
+tcbp.py             실행 엔진 (파사드 — core/·messages/ 를 조합해 CLI 진입점(main())을 제공)
+core/                 tcbp.py의 실제 구현이 기능별로 나뉜 내부 패키지 (아래 표 참고)
+messages/             tcbp.py/validate_config.py 자신이 출력하는 문구의 다국어(ko/en) 카탈로그
 validate_config.py  config.toml 사전 검증 도구 (4.11절 참고)
 config.toml         작업 정의 파일 (기본값)
+pyproject.toml       패키징/의존성 메타데이터 (`pip install -e .` 지원 — 아래 참고)
 plugin/              플러그인 폴더 (5장 참고)
-logs/                실행 로그 폴더 (log=true 시 자동 생성, 실행마다 파일 분리)
+logs/                실행 로그 폴더 (log=true 시 또는 오류 발생 시 자동 생성, 실행마다 파일 분리)
+tests/               pytest 테스트 스위트
+```
+
+`core/` 내부 모듈 구성 (플러그인/외부 도구는 `from tcbp import ...`로만 접근하며, 이 내부 분할과 무관하게 항상 동작합니다):
+
+| 모듈 | 내용 |
+|---|---|
+| `contract.py` | `strict_dataclass`(pydantic 폴백 포함), `TcbpError`, `PluginInfo`, `@plugin` 데코레이터 |
+| `winapi.py` | 단축 경로 변환, ANSI 활성화, cmd.exe 없이 argv 파싱 등 Windows API 유틸리티 |
+| `models.py` | `ResolvedJob`/`JobParam`/`FileSession`/`BatchSession`/`ExecResult` 등 데이터 모델 |
+| `cli.py` | argparse 기반 CLI 파싱 (`--lang` 사전 스캔 포함) |
+| `params.py` | 파라미터 프롬프트 UI, bool/int 변환, preset 검증 |
+| `config.py` | `ConfigLoader`, TOML 오류 메시지, 플러그인 로딩(`load_plugin`) |
+| `context.py` | 파일 목록 로드, `{placeholder}` 치환(`ContextBuilder`) |
+| `display.py` | 화면 표시 폭 계산, 멀티스레드 순서 보장 출력(`OutputManager`) |
+| `logging_.py` | 로그 설정(`setup_logging`) |
+| `executor.py` | 명령/플러그인 실행 엔진(`CommandExecutor`, `JobRunner`) |
+| `api.py` | `validate_config.py`/플러그인이 의존하는 공개 심볼 재수출 |
+
+#### 설치 (선택)
+`python tcbp.py ...`로 바로 실행해도 되고, `pip install -e .`로 설치하면 `tcbp`/`validate-config` 커맨드를 어디서나 쓸 수 있습니다.
+```commandline
+pip install -e .
+tcbp --version
+tcbp <JobName> <FileList> ...
+validate-config config.toml
 ```
 
 ### 3.3 기본 사용법
@@ -448,8 +477,9 @@ log_file = "logs/tcbp_{job}_{timestamp}.log"
 - 별도의 실패 전용 로그 파일(`*_failed.log`)은 만들지 않으며, 같은 로그 파일 안에서 `[ERROR]` 레벨로 실패 건만 걸러볼 수 있습니다.
 - 로그에는 잡 헤더, 파일별 처리 결과, 오류 메시지(CMD + STDERR)가 기록됩니다.
 
-#### 긴급 오류 로그 (`tcbp_error.log`)
-설정 파일 로드 실패 등 로거 초기화 이전에 발생한 오류는 `tcbp_error.log`에 타임스탬프와 함께 기록됩니다.
+#### 긴급 오류 로그 (`logs/tcbp_error.log`)
+설정 파일 로드 실패 등 로거 초기화 이전에 발생한 오류는 `logs/tcbp_error.log`에 타임스탬프와 함께 기록됩니다.
+- 테스트용 서브프로세스에서 `TCBP_TEST=1`을 설정하면 긴급 오류는 `logs/tcbp_error_test.log`에 기록되어 테스트 중 발생한 실패와 실제 실행 오류를 분리할 수 있습니다.
 
 ```
 [2026-06-27 23:51:15]
@@ -758,13 +788,13 @@ commands = [
 
 **중요: 기술적으로는 이것은 Python의 진짜 객체 속성 접근이 아닙니다.** Python `str.format()`의 `"{name.attr}"` 문법은 실제로 `context[name]`이라는 객체를 먼저 찾은 뒤, 그 객체에 대해 `getattr(obj, "attr")`을 수행합니다. `{ch_bitrate.label}`을 이 방식 그대로 지원하려면 `context["ch_bitrate"]`에 들어가는 값 자체를 `.label` 속성을 가진 `int`/`str` 서브클래스로 감싸야 하는데, **`bool`은 파이썬에서 서브클래싱이 금지**되어 있어(`TypeError: type 'bool' is not an acceptable base type`) `type="bool"`인 preset 파라미터를 이 방식으로는 지원할 수 없습니다.
 
-그래서 `tcbp.py`의 [substitute()](tcbp.py)는 실제 속성 접근 프로토콜을 쓰는 대신, `str.format_map()`을 호출하기 **전에** 정규식으로 텍스트를 먼저 바꿔치기합니다 ([_expand_dot_sugar()](tcbp.py)):
+그래서 [substitute()](core/context.py)는 실제 속성 접근 프로토콜을 쓰는 대신, `str.format_map()`을 호출하기 **전에** 정규식으로 텍스트를 먼저 바꿔치기합니다 ([_expand_dot_sugar()](core/context.py)):
 - `{key.label}` → context에 `key_label`이 있으면 `{key_label}`로, 없으면 `{{key.label}}`(이스케이프된 리터럴)로 치환
 - `{key.value}` → context에 `key`가 있으면 `{key}`로, 없으면 마찬가지로 이스케이프된 리터럴로 치환
 
 context 안의 실제 값 타입(`int`/`bool`/`str`)은 전혀 건드리지 않고, 순수 텍스트 전처리 계층 하나만 얹는 방식이라 `bool` 문제 자체가 발생하지 않습니다.
 
-**못 찾았을 때 이스케이프가 필요한 이유** — 처음 구현에서는 매칭되는 값이 없으면 그냥 원본 텍스트 `"{key.label}"`을 그대로 두려고 했지만, 그러면 뒤이어 실행되는 `format_map()`이 이 문자열을 또다시 진짜 `"{name.attr}"` 속성 접근으로 파싱해버립니다. 만약 `key`는 context에 있지만(예: `size`) 그 값에 `.label` 속성이 없다면(예: 평범한 `int`), `AttributeError: 'int' object has no attribute 'label'`로 전체 치환이 죽어버립니다. 이를 막기 위해 못 찾은 경우 `{{key.label}}`처럼 중괄호를 이스케이프해 `format_map()`에게는 순수 텍스트로만 보이게 만들고, 최종 출력에서는 `{key.label}`이 리터럴 그대로 남습니다 — [SafeDict](tcbp.py)의 "정의되지 않은 placeholder는 원문 유지" 철학과 동일한 결과를 안전하게 재현한 것입니다.
+**못 찾았을 때 이스케이프가 필요한 이유** — 처음 구현에서는 매칭되는 값이 없으면 그냥 원본 텍스트 `"{key.label}"`을 그대로 두려고 했지만, 그러면 뒤이어 실행되는 `format_map()`이 이 문자열을 또다시 진짜 `"{name.attr}"` 속성 접근으로 파싱해버립니다. 만약 `key`는 context에 있지만(예: `size`) 그 값에 `.label` 속성이 없다면(예: 평범한 `int`), `AttributeError: 'int' object has no attribute 'label'`로 전체 치환이 죽어버립니다. 이를 막기 위해 못 찾은 경우 `{{key.label}}`처럼 중괄호를 이스케이프해 `format_map()`에게는 순수 텍스트로만 보이게 만들고, 최종 출력에서는 `{key.label}`이 리터럴 그대로 남습니다 — [SafeDict](core/context.py)의 "정의되지 않은 placeholder는 원문 유지" 철학과 동일한 결과를 안전하게 재현한 것입니다.
 
 **적용 범위**
 - `.label`/`.value` 두 가지 속성만 지원하는 좁은 규칙이며, 임의의 속성 접근을 지원하는 범용 템플릿 엔진이 아닙니다.
@@ -794,3 +824,13 @@ context 안의 실제 값 타입(`int`/`bool`/`str`)은 전혀 건드리지 않�
   - TTY/ANSI 미지원 환경은 번호 선택으로 자동 폴백
   - 사용자가 값을 직접 입력해야 했던 경우에만 실행 직전 최종 파라미터 확인 화면 표시(CLI로 전부 채워진 기존 Job은 동작 무변화)
   - preset의 값과 사용자가 고른 라벨이 달라 헛갈리는 문제를 완화하기 위해, 최종 확인 화면에 고른 라벨을 값과 함께 병기하고 placeholder에 `{key.label}`와 `{key.value}`의 placeholder를 사용하여 `pre`/`post` 메시지 등에서 쓸 수 있게 함
+- **v2.6:** 단일 god file이던 tcbp.py를 기능별 모듈로 분할하는 대규모 리팩토링 (외부 동작·설정 파일 형식은 무변화 — `from tcbp import ...`로 접근하는 플러그인/`validate_config.py`도 그대로 동작)
+  - `tcbp.py`는 `core/`(내부 구현 패키지)·`messages/`(ko/en 문구 카탈로그)를 조합하는 파사드로 축소 (3.2절 참고)
+  - 내부에서 쓰이던 `sys.exit()` 호출을 `TcbpError` 예외로 통일 — CLI 진입점(`main()`)에서만 최종적으로 `sys.exit`으로 변환
+  - `pyproject.toml`에 패키징 메타데이터 추가 — `pip install -e .`로 설치하면 `tcbp`/`validate-config` 커맨드 사용 가능
+  - `--version` 플래그 추가, 실행 시 첫 줄에 `TCBP (v{버전})` 배너 표시
+  - 로거 초기화 이전 크래시를 기록하는 긴급 오류 로그 위치를 루트의 `tcbp_error.log`에서 `logs/tcbp_error.log`로 변경 (4.10절 참고)
+  - PluginInfo에 계약 버전 필드 도입
+  - JobRunner/CommandExecutor/OutputManager 단위테스트 추가
+  - 테스트시 발생하는 에러 로그는 `tcbp_error.log`와는 다른 별개의 로그 파일 `tcbp_error_test.log`에 기록
+  

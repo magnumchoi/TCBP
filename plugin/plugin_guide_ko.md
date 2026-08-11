@@ -133,6 +133,7 @@ from tcbp import plugin
 
 @plugin(
     name="remove_bom",       # 플러그인 식별 이름 (통상 파일명과 동일하게 유지)
+    contract_version="1.0",  # 이 플러그인이 작성 시점에 대상으로 삼은 계약 버전 (필수, 아래 참고)
     version="1.0",
     author="...",
     session_type="file",     # "file" | "batch" (2.3 참고)
@@ -151,6 +152,7 @@ def run(session):
 @strict_dataclass(frozen=True)
 class PluginInfo:
     name: str
+    contract_version: str
     version: str
     author: str
     session_type: Literal["file", "batch"]
@@ -163,6 +165,29 @@ class PluginInfo:
 데코레이터가 평가되는 **plugin import 시점에 즉시 예외**가 발생합니다 (5.1절
 fail-fast 참고) — Job이 실제로 실행되기 한참 전, 심지어 `validate_config.py`
 사전 검증 단계에서부터 걸러집니다.
+
+#### `contract_version` — 플러그인 계약 버전 (필수)
+
+`contract_version`은 `bmp2png`/`mozjpeg`/`group_md5`/`remove_bom` 자신의
+`version`(플러그인 저자가 매기는 버전)과는 다른 개념입니다 — **`FileSession`
+/`BatchSession`/`PluginInfo`의 "형태" 자체**가 몇 번 버전인지를 선언하는
+`"MAJOR.MINOR"` 문자열이며(예: `"1.0"`), TCBP 자신의 제품 버전
+(`pyproject.toml`)과도 무관합니다.
+
+`load_plugin()`이 플러그인을 import할 때마다 이 값을 TCBP가 현재 구현하고
+있는 계약 버전과 비교합니다:
+
+- **MAJOR가 다르면 즉시 거부** — 기존 플러그인을 깨뜨리는 변경(필드 제거,
+  타입 변경 등)이 있었다는 뜻입니다.
+- **MAJOR가 같고 선언한 MINOR가 TCBP의 것보다 크면 거부** — 플러그인이 이
+  TCBP 버전엔 아직 없는 계약 기능을 요구한다는 뜻입니다.
+- **MAJOR가 같고 MINOR가 같거나 낮으면 통과** — TCBP가 그 사이 하위 호환되는
+  필드만 추가했다는 뜻이므로 문제없습니다.
+
+즉, 계약이 정말로 깨지는 변경이 있을 때만(자주 있는 일이 아닙니다) 값을 올려
+쓰면 되고, 평소에는 그대로 두어도 됩니다. 형식이 `"MAJOR.MINOR"`가 아니거나
+호환되지 않으면 `load_plugin()`이 그 자리에서 `TcbpError`로 거부합니다 —
+`session_type` 오타와 동일하게 plugin import 시점의 fail-fast 대상입니다.
 
 ### 3.2 `FileSession`
 
@@ -417,7 +442,7 @@ def _process(input_path: str, output_path: str, params: dict) -> None:
 
 
 @plugin(
-    name="<name>", version="1.0", author="...",
+    name="<name>", contract_version="1.0", version="1.0", author="...",
     session_type="file", requirements=[], notes_per_file=0,
 )
 def run(session: FileSession) -> ExecResult:  # TCBP 진입점
@@ -483,7 +508,7 @@ def _process(filelist: list[str], params: dict, log_fn) -> BatchResult:
 
 
 @plugin(
-    name="<name>", version="1.0", author="...",
+    name="<name>", contract_version="1.0", version="1.0", author="...",
     session_type="batch", requirements=[], notes_per_file=0,
 )
 def run(session: BatchSession) -> BatchResult:  # TCBP 진입점
@@ -542,7 +567,7 @@ python plugin\<name>.py <list_file> [key=value ...]           # BatchSession
 
 ```python
 @plugin(
-    name="mozjpeg", version="1.0", author="...",
+    name="mozjpeg", contract_version="1.0", version="1.0", author="...",
     session_type="file",
     requirements=["jpeglib", "numpy", "Pillow"],
     notes_per_file=0,
@@ -812,6 +837,8 @@ BatchSession 플러그인은 "그룹/파일 단위의 예상 가능한 실패"�
 
 - [ ] `run` 함수에 `@plugin(...)` 데코레이터를 붙였고, `session_type`이
       `"file"`/`"batch"` 중 실제 처리 단위와 일치하는가?
+- [ ] `@plugin(contract_version=...)`을 선언했는가? (3.1절 — 현재 TCBP의 계약
+      버전은 `tcbp.CONTRACT_VERSION`으로 확인 가능)
 - [ ] `run()`과 단독 CLI가 동일한 `_process()` 함수를 호출하는가? (4.4절)
 - [ ] 단독 CLI에서 파일 목록/와일드카드/재귀 탐색을 구현하지 않았는가?
       (구현했다면 삭제 대상 — 2.2절)

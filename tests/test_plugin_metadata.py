@@ -36,6 +36,13 @@ def test_plugin_has_valid_metadata(name):
     assert info.name == name
     assert info.session_type in ("file", "batch")
     assert info.notes_per_file >= 0
+    # [ko] 번들 플러그인은 전부 같은 관리자가 유지보수하므로 항상 현재 계약 버전을
+    #      그대로 따라가야 한다 — 어긋나면 CONTRACT_VERSION을 올리고도 번들
+    #      플러그인 갱신을 잊었다는 뜻이다.
+    # [en] Bundled plugins are all maintained by the same person, so they should
+    #      always track the current contract version exactly — a mismatch means
+    #      CONTRACT_VERSION was bumped without updating the bundled plugins.
+    assert info.contract_version == tcbp.CONTRACT_VERSION
 
 
 def test_at_least_one_plugin_discovered():

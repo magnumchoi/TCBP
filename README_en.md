@@ -35,12 +35,42 @@ The main features of this tool are as follows.
 - Windows environment (full Unicode path support)
 ### 3.2 File Structure
 ```filelist
-tcbp.py             Execution engine
+tcbp.py             Execution engine (a facade — combines core/ and messages/ into the main() CLI entry point)
+core/                 Internal package holding tcbp.py's actual implementation, split by concern (see table below)
+messages/             i18n (ko/en) message catalog for tcbp.py's/validate_config.py's own output
 validate_config.py  config.toml pre-flight validation tool (see section 4.11)
 config.toml         Job definition file (default)
+pyproject.toml       Packaging/dependency metadata (supports `pip install -e .` — see below)
 plugin/              Plugin folder (see Chapter 5)
-logs/                Execution log folder (auto-created when log=true, one file per run)
+logs/                Execution log folder (auto-created on log=true or on error, one file per run)
+tests/               pytest test suite
 ```
+
+`core/`'s internal modules (plugins and other external code only ever reach these via `from tcbp import ...`, and always work regardless of this internal split):
+
+| Module | Contents |
+|---|---|
+| `contract.py` | `strict_dataclass` (with pydantic fallback), `TcbpError`, `PluginInfo`, the `@plugin` decorator |
+| `winapi.py` | Windows API utilities — short-path conversion, ANSI enablement, argv parsing without cmd.exe |
+| `models.py` | Data models — `ResolvedJob`/`JobParam`/`FileSession`/`BatchSession`/`ExecResult`, etc. |
+| `cli.py` | argparse-based CLI parsing (including the `--lang` pre-scan) |
+| `params.py` | Parameter prompt UI, bool/int coercion, preset validation |
+| `config.py` | `ConfigLoader`, TOML error messages, plugin loading (`load_plugin`) |
+| `context.py` | File list loading, `{placeholder}` substitution (`ContextBuilder`) |
+| `display.py` | On-screen display width calculation, order-preserving multithreaded output (`OutputManager`) |
+| `logging_.py` | Logging setup (`setup_logging`) |
+| `executor.py` | The command/plugin execution engine (`CommandExecutor`, `JobRunner`) |
+| `api.py` | Re-exports the public symbols `validate_config.py`/plugins depend on |
+
+#### Installation (optional)
+You can run it directly with `python tcbp.py ...`, or install it with `pip install -e .` to get the `tcbp`/`validate-config` commands available anywhere.
+```commandline
+pip install -e .
+tcbp --version
+tcbp <JobName> <FileList> ...
+validate-config config.toml
+```
+
 ### 3.3 Basic Usage
 
 ```commandline
@@ -428,8 +458,9 @@ log_file = "logs/tcbp_{job}_{timestamp}.log"
 - There's no separate failed-run log file (`*_failed.log`) — failures can be filtered within the same log file by `[ERROR]` level.
 - The log records job headers, per-file results, and error messages (CMD + STDERR).
 
-#### Emergency Error Log (`tcbp_error.log`)
-Errors that occur before the logger is initialized, such as a config file load failure, are recorded in `tcbp_error.log` with a timestamp.
+#### Emergency Error Log (`logs/tcbp_error.log`)
+Errors that occur before the logger is initialized, such as a config file load failure, are recorded in `logs/tcbp_error.log` with a timestamp.
+- When `TCBP_TEST=1` is set for subprocess-based tests, emergency errors are written to `logs/tcbp_error_test.log` instead to keep test-generated failures separate from normal runtime crashes.
 
 ```
 [2026-06-27 23:51:15]
@@ -734,13 +765,13 @@ As explained in section 4.2.2, a param declared with `preset` can have a stored 
 
 **Important: this is not real Python attribute access.** Python `str.format()`'s `"{name.attr}"` syntax actually looks up the object `context[name]` first, then performs `getattr(obj, "attr")` on it. Supporting `{ch_bitrate.label}` this way for real would require wrapping the value stored in `context["ch_bitrate"]` in an `int`/`str` subclass carrying a `.label` attribute — but **`bool` cannot be subclassed in Python** (`TypeError: type 'bool' is not an acceptable base type`), so `type="bool"` preset params couldn't be supported this way.
 
-So [substitute()](tcbp.py) in `tcbp.py` doesn't use the real attribute-access protocol at all. Instead, **before** calling `str.format_map()`, it rewrites the text with a regex ([_expand_dot_sugar()](tcbp.py)):
+So [substitute()](core/context.py) doesn't use the real attribute-access protocol at all. Instead, **before** calling `str.format_map()`, it rewrites the text with a regex ([_expand_dot_sugar()](core/context.py)):
 - `{key.label}` → `{key_label}` if `key_label` exists in the context, otherwise `{{key.label}}` (an escaped literal)
 - `{key.value}` → `{key}` if `key` exists in the context, otherwise likewise an escaped literal
 
 The actual value types (`int`/`bool`/`str`) inside the context are never touched — this is purely a text-preprocessing layer, so the `bool` problem never arises in the first place.
 
-**Why the escaping is needed when nothing matches** — the first implementation, when no match was found, simply left the original text `"{key.label}"` as-is. But the following `format_map()` call would then re-parse that same string as a real `"{name.attr}"` attribute access. If `key` exists in the context (e.g. `size`) but its value has no `.label` attribute (e.g. a plain `int`), the whole substitution would crash with `AttributeError: 'int' object has no attribute 'label'`. To prevent this, an unmatched case is rewritten to an escaped form like `{{key.label}}` so `format_map()` sees pure literal text, and the final output correctly keeps `{key.label}` as a literal — safely reproducing the same result as [SafeDict](tcbp.py)'s "leave an undefined placeholder as-is" philosophy.
+**Why the escaping is needed when nothing matches** — the first implementation, when no match was found, simply left the original text `"{key.label}"` as-is. But the following `format_map()` call would then re-parse that same string as a real `"{name.attr}"` attribute access. If `key` exists in the context (e.g. `size`) but its value has no `.label` attribute (e.g. a plain `int`), the whole substitution would crash with `AttributeError: 'int' object has no attribute 'label'`. To prevent this, an unmatched case is rewritten to an escaped form like `{{key.label}}` so `format_map()` sees pure literal text, and the final output correctly keeps `{key.label}` as a literal — safely reproducing the same result as [SafeDict](core/context.py)'s "leave an undefined placeholder as-is" philosophy.
 
 **Scope**
 - Only two attributes, `.label` and `.value`, are supported — this is a narrow rule, not a general-purpose templating engine with arbitrary attribute access.
@@ -770,3 +801,12 @@ The actual value types (`int`/`bool`/`str`) inside the context are never touched
   - Environments without TTY/ANSI support automatically fall back to numbered selection.
   - The final parameter confirmation screen right before execution appears only when the user had to enter a value manually (an existing Job fully supplied via CLI sees no behavior change).
   - To mitigate confusion when a preset's value differs from the label the user picked, the final confirmation screen now pairs the picked label with the value, and the `{key.label}` / `{key.value}` placeholders (section 8.6) are available for use in `pre`/`post` messages, etc.
+- **v2.6:** Large-scale refactoring that split the formerly single god-file `tcbp.py` into modules by concern (external behavior and the config file format are unchanged — plugins and `validate_config.py`, which access it via `from tcbp import ...`, keep working as-is)
+  - `tcbp.py` is now a thin facade combining `core/` (the internal implementation package) and `messages/` (the ko/en message catalog) — see section 3.2
+  - Internal `sys.exit()` calls were unified into a `TcbpError` exception, converted to `sys.exit` only at the very end, in the CLI entry point (`main()`)
+  - Added packaging metadata to `pyproject.toml` — `pip install -e .` now gives you the `tcbp`/`validate-config` commands
+  - Added a `--version` flag, and a `TCBP (v{version})` banner is now printed as the first line on every run
+  - Moved the emergency error log (records crashes that happen before the logger is initialized) from `tcbp_error.log` at the project root to `logs/tcbp_error.log` (see section 4.10)
+  - Introduced a contract version field in `PluginInfo`
+  - Added unit tests for `JobRunner` / `CommandExecutor` / `OutputManager`
+  - Errors generated during subprocess-based tests are now written to a separate `logs/tcbp_error_test.log` file, keeping test failures distinct from normal runtime emergency logs.

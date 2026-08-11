@@ -138,6 +138,7 @@ from tcbp import plugin
 
 @plugin(
     name="remove_bom",       # Plugin identifier (usually kept identical to the filename)
+    contract_version="1.0",  # The contract version this plugin targets (required, see below)
     version="1.0",
     author="...",
     session_type="file",     # "file" | "batch" (see 2.3)
@@ -156,6 +157,7 @@ The values passed to `@plugin(...)` are validated internally as `PluginInfo`
 @strict_dataclass(frozen=True)
 class PluginInfo:
     name: str
+    contract_version: str
     version: str
     author: str
     session_type: Literal["file", "batch"]
@@ -169,6 +171,31 @@ has the wrong type, an exception is raised **immediately at plugin import
 time**, when the decorator is evaluated (see the fail-fast discussion in 5.1)
 — long before the Job actually runs, and even before that, at
 `validate_config.py`'s pre-flight check stage.
+
+#### `contract_version` — the plugin contract version (required)
+
+`contract_version` is a different concept from `bmp2png`/`mozjpeg`/`group_md5`/
+`remove_bom`'s own `version` (the plugin author's own version number) — it's a
+`"MAJOR.MINOR"` string (e.g. `"1.0"`) declaring the version of the **shape of
+`FileSession`/`BatchSession`/`PluginInfo` themselves**, and it's independent of
+TCBP's own product version (`pyproject.toml`).
+
+Every time `load_plugin()` imports a plugin, it compares this value against
+the contract version TCBP currently implements:
+
+- **A different MAJOR is rejected immediately** — meaning a change happened
+  that breaks existing plugins (a removed field, a changed type, etc.).
+- **The same MAJOR but a declared MINOR greater than TCBP's is rejected** —
+  meaning the plugin requires a contract feature this TCBP version doesn't
+  have yet.
+- **The same MAJOR with MINOR equal or lower passes** — meaning TCBP has only
+  added backward-compatible fields since, so there's no issue.
+
+In practice, you only need to bump this value when the contract genuinely
+breaks (which isn't common) — otherwise leave it as-is. An invalid
+`"MAJOR.MINOR"` format or an incompatible value is rejected on the spot with a
+`TcbpError` from `load_plugin()` — the same plugin-import-time fail-fast as a
+typo'd `session_type`.
 
 ### 3.2 `FileSession`
 
@@ -441,7 +468,7 @@ def _process(input_path: str, output_path: str, params: dict) -> None:
 
 
 @plugin(
-    name="<name>", version="1.0", author="...",
+    name="<name>", contract_version="1.0", version="1.0", author="...",
     session_type="file", requirements=[], notes_per_file=0,
 )
 def run(session: FileSession) -> ExecResult:  # TCBP entry point
@@ -508,7 +535,7 @@ def _process(filelist: list[str], params: dict, log_fn) -> BatchResult:
 
 
 @plugin(
-    name="<name>", version="1.0", author="...",
+    name="<name>", contract_version="1.0", version="1.0", author="...",
     session_type="batch", requirements=[], notes_per_file=0,
 )
 def run(session: BatchSession) -> BatchResult:  # TCBP entry point
@@ -569,7 +596,7 @@ If a plugin needs an external package beyond the standard library, list it in
 
 ```python
 @plugin(
-    name="mozjpeg", version="1.0", author="...",
+    name="mozjpeg", contract_version="1.0", version="1.0", author="...",
     session_type="file",
     requirements=["jpeglib", "numpy", "Pillow"],
     notes_per_file=0,
@@ -865,6 +892,8 @@ Once you've written a new plugin, check the following.
 
 - [ ] Is the `run` function wrapped with `@plugin(...)`, and does
       `session_type` match the actual processing unit (`"file"`/`"batch"`)?
+- [ ] Did you declare `@plugin(contract_version=...)`? (Section 3.1 — check
+      TCBP's current contract version via `tcbp.CONTRACT_VERSION`)
 - [ ] Do `run()` and the standalone CLI call the exact same `_process()`
       function? (Section 4.4)
 - [ ] Does the standalone CLI avoid implementing file-list/wildcard/recursive

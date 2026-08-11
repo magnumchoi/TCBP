@@ -1,3 +1,31 @@
+[project]
+name            = "tcbp"
+version         = "2.6"
+description     = "Total Commander Batch Python — TOML-based batch processing engine"
+readme          = "README_en.md"
+requires-python = ">=3.11"
+license         = { text = "MIT" }
+
+[project.optional-dependencies]
+typing  = ["pydantic"]
+ux      = ["keyboard", "wcwidth"]
+full    = ["pydantic", "keyboard", "wcwidth"]
+
+[project.scripts]
+tcbp             = "tcbp:main"
+validate-config  = "validate_config:main"
+
+# [ko] 루트에 tcbp.py/validate_config.py(모듈)와 plugin/(사용자 편집용, 배포 대상 아님)이
+#      함께 있는 플랫 레이아웃이라 setuptools 자동 탐색이 애매해진다 — 설치 대상을 명시한다.
+# [en] The flat layout mixes root-level modules (tcbp.py/validate_config.py) with
+#      plugin/ (user-editable, not meant to be packaged), which confuses setuptools'
+#      automatic discovery — so the installable set is declared explicitly.
+[tool.setuptools]
+py-modules = ["tcbp", "validate_config"]
+
+[tool.setuptools.packages.find]
+include = ["messages*", "core*"]
+
 [tool.pytest.ini_options]
 markers = [
     "cli: 실제 standalone CLI를 subprocess로 구동하는 테스트 (느림)",

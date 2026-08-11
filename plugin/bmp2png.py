@@ -140,6 +140,7 @@ def _process(input_path: str, output_path: str, params: dict) -> list[str]:
 
 @plugin(
     name="bmp2png",
+    contract_version="1.0",
     version="1.0",
     author="Magnum Choi",
     session_type="file", requirements=["opencv-python", "Pillow", "numpy"], notes_per_file=0,
