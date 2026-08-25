@@ -24,7 +24,12 @@ from core.contract import CONTRACT_VERSION, PluginInfo, TcbpError
 from messages import _t
 
 
+_PLUGIN_NAME_RE = re.compile(r"^[\w-]+$")
+
+
 def _plugin_path(name: str) -> Path:
+    if not _PLUGIN_NAME_RE.match(name):
+        raise TcbpError(_t("err_plugin_invalid_name", name=name))
     return _SCRIPT_DIR / "plugin" / f"{name}.py"
 
 

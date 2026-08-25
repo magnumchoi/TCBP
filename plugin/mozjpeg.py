@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-[ko]
-[플러그인 개요]
+[ko][플러그인 개요]
 이름: mozjpeg.py
 버전: v1.0
 타입: TCBP FileSession 플러그인
 목적: MozJPEG을 사용한 JPEG 재압축/변환
 설명: TCBP를 통해 run(session)으로 호출되거나, tcbp 없이 단독 CLI로 파일 1개를 처리할 수 있다.
+독립실행시:
+    python mozjpeg.py <input> <output> [quality=100]
 기타:
 - MozJPEG은 Mozilla 재단이 발표한 고효율 JPEG 라이브러리로, 
   표준 JPEG 라이브러리에 대해 디코딩 호환성을 보장하고, 더 작은 크기와 더 나은 화질을 제공한다.
@@ -16,21 +17,22 @@
 - quality는 1~100 범위여야 하며, 벗어나면 오류로 처리한다.
 - 입력 포맷 : `.bmp`, `.png`, `.jpg`, `.jpeg`, `.webp`
 - 출력 포맷 : `.jpg` (항상)
-독립실행시:
-    python mozjpeg.py <input> <output> [quality=100]
 테크니컬 노트:
 - 설치된 MozJPEG 버전 중 최신(403 → 300 → 201 → 101 순)을 자동 선택하며, 없으면 표준 libjpeg로 폴백한다.
 - 상기의 버전 선택 결과값은 전역 변수 _CHOSEN_MOZJPEG에 캐시된다.
   전역 캐시는 본래는 멀티스레드에 안전하게 쓰려면 lock을 사용해야 하나,
   이 경우에는 멱등적(계산 결과가 항시 동일함)이므로 lock없이도 안전하다.
+버전이력:
+- v1.0 : 최초 작성
 
-[en]
-[Plugin Overview]
+[en][Plugin Overview]
 Name: mozjpeg.py
 Version: v1.0
 Type: TCBP FileSession plugin
 Purpose: Recompress/convert images to JPEG using MozJPEG
 Description: Can be called via run(session) through TCBP, or run standalone (without tcbp) on a single file.
+Standalone execution:
+    python mozjpeg.py <input> <output> [quality=100]
 Notes:
 - MozJPEG is a high-efficiency JPEG library from the Mozilla Foundation — it guarantees decoding
   compatibility with the standard JPEG library while producing smaller files with better quality.
@@ -40,8 +42,6 @@ Notes:
 - quality must be in the 1-100 range; a value outside that range is treated as an error.
 - Supported input formats: `.bmp`, `.png`, `.jpg`, `.jpeg`, `.webp`
 - Output format: `.jpg` (always)
-Standalone execution:
-    python mozjpeg.py <input> <output> [quality=100]
 Technical notes:
 - Automatically selects the newest installed MozJPEG version (in order 403 → 300 → 201 → 101),
   falling back to standard libjpeg if none are available.
@@ -49,6 +49,8 @@ Technical notes:
   A global cache like this would normally need a lock to be thread-safe,
   but here it's safe without one because the computation is idempotent
   (the result is always the same).
+Version history:
+- v1.0 : Initial version.
 
 """
 import sys

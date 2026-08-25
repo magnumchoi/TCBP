@@ -2,8 +2,8 @@
 
 이 문서는 TCBP(Total Commander Batch Python)의 `plugin = "..."` Job에서 실행되는
 플러그인을 새로 만들거나 유지보수하려는 개발자를 위한 가이드입니다. TCBP 사용자
-전반을 위한 문서는 상위 폴더의 `README_ko.md`(5장)를 참고하세요 — 이 문서는
-플러그인 "제작자" 관점에 집중합니다.
+전반을 위한 문서는 상위 폴더의 `README_ko.md`(5장)를 참고하세요. 이 문서는
+플러그인 개발자 관점에 집중합니다.
 
 > **요구 사항:** TCBP는 Python 3.11 이상에서 동작합니다(`README_ko.md` 참고).
 > 이 문서의 스켈레톤 코드도 `str | None`, `list[str]`처럼 3.10+ 문법을
@@ -208,7 +208,7 @@ class FileSession:
 
 > **주의:** `session.itemid`는 파일당 1-based 순번(정수)입니다. `config.toml`의
 > `{itemid}` placeholder(임시 파일명용으로 매번 새로 생성되는 랜덤 문자열)와는
-> 이름만 같을 뿐 서로 다른 값이니 혼동하지 마세요.
+> 이름만 같을 뿐 서로 다른 값이므로 혼동하지 마세요.
 
 ### 3.3 `BatchSession`
 
@@ -262,8 +262,8 @@ class BatchResult:
 - FileSession: `run(session: FileSession) -> ExecResult`
 - BatchSession: `run(session: BatchSession) -> BatchResult`
 
-`BatchResult.succeeded + failed`가 `session.filelist` 전체를 다 채우지 않아도
-(=일부 파일이 조용히 스킵돼도) TCBP는 이를 강제하지 않습니다. 다만 요약 로그의
+`BatchResult.succeeded + failed`가 `session.filelist` 전체를 모두 채우지 않아도
+(=일부 파일이 조용히 건너뛰어도) TCBP는 이를 강제하지 않습니다. 다만 요약 로그의
 "성공/실패" 건수는 이 두 리스트의 길이를 그대로 반영하므로, 처리한 파일은
 빠짐없이 둘 중 하나에 담는 것을 권장합니다.
 
@@ -286,10 +286,10 @@ class BatchResult:
 `[idx] input → output` 결과 줄 자체에 줄바꿈 없이 이어 붙여 보여줍니다
 (예: `[   1] 001.bmp → 001.png  [source deleted]`, `bmp2png` 참고). 단,
 이는 병렬 모드(ANSI 블록)에서만 그 줄 자체에 합쳐지고, 순차 모드에서는
-이미 출력된 줄을 ANSI로 다시 덮어쓸 수 없으므로 바로 아래 줄로 출력됩니다
-— 어느 모드든 플러그인 코드는 동일하게 `ExecResult(True, "짧은 메모")`만
+이미 출력된 줄을 ANSI로 다시 덮어쓸 수 없으므로 바로 아래 줄로 출력됩니다.
+어느 모드든 플러그인 코드는 동일하게 `ExecResult(True, "짧은 메모")`만
 반환하면 됩니다. 진행률 표시처럼 같은 자리를 여러 번 갱신해야 하는
-경우에는 이 방식 대신 3.5절의 `session.log()`/slot을 쓰세요 — `message`는
+경우에는 이 방식 대신 3.5절의 `session.log()`/slot을 쓰세요. `message`는
 "완료 시 한 줄짜리 짧은 부가 정보"에만 적합합니다.
 
 ### 3.5 `session.log()`와 slot 규칙
@@ -605,12 +605,12 @@ python plugin\<name>.py <list_file> [key=value ...]           # BatchSession
 (메타정보만 확인, 실제 처리는 실행하지 않으므로), 실제 실행 시점에만 원인이
 분명한 에러 메시지로 실패합니다.
 
-**대체 가능한 패키지가 여럿인 경우 (OR 의존성):** 같은 기능을 제공하는 후보
+**대체 가능한 패키지가 여러 개인 경우 (OR 의존성):** 같은 기능을 제공하는 후보
 패키지가 여러 개 있어 그중 하나만 있어도 동작 가능하다면, `requirements`에는
 후보 패키지를 전부 나열하고, 실제 선택은 사용 시점에 `try/except ImportError`를
 중첩해 우선순위대로 시도합니다. 이 경우는 모듈 최상단에서 미리 지연 import를
-해둘 필요 없이, 그 패키지를 실제로 쓰는 함수 안에서 바로 `import`해도 됩니다 —
-`validate_config.py`가 하는 것은 `run.plugin_info`를 확인하기 위한 모듈 import뿐이고,
+해둘 필요 없이, 그 패키지를 실제로 쓰는 함수 안에서 바로 `import`해도 됩니다.
+`validate_config.py`가 하는 것은 `run.plugin_info`를 확인하기 위한 모듈 import뿐이며,
 함수 내부의 import 문은 그 함수가 호출되기 전까지 실행되지 않기 때문입니다.
 `plugin/bmp2png.py`의 `bmp_to_png()`가 이 패턴의 예시입니다 — OpenCV(우선,
 고속)를 시도하고 `ImportError`면 Pillow로 폴백하며, 폴백마저 실패하면 그

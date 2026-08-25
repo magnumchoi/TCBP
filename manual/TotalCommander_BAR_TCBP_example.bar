@@ -1,0 +1,185 @@
+[Buttonbar]
+Buttoncount=30
+button1=wcmicons.dll,15
+cmd1=%Commander_path%\BAR\DEFAULT.BAR
+iconic1=0
+menu1=Main
+
+button2=
+iconic2=0
+
+button3=c:\Python311\python.exe
+cmd3=c:\Python311\python.exe
+param3=c:\_FIX\CustomTool\TCBP\tcbp.py ConvJPG %UL quality=100
+path3=c:\_FIX\CustomTool\TCBP\
+iconic3=0
+menu3=Convert to JPG
+
+button4=c:\Python311\python.exe
+cmd4=c:\Python311\python.exe
+param4=c:\_FIX\CustomTool\TCBP\tcbp.py Conv2BMP %UL
+path4=c:\_FIX\CustomTool\TCBP\
+iconic4=0
+menu4=Convert to BMP
+
+button5=c:\Python311\python.exe
+cmd5=c:\Python311\python.exe
+param5=c:\_FIX\CustomTool\TCBP\tcbp.py Conv2PNG %UL
+path5=c:\_FIX\CustomTool\TCBP\
+iconic5=0
+menu5=Convert to PNG
+
+button6=c:\Python311\python.exe
+cmd6=c:\Python311\python.exe
+param6=c:\_FIX\CustomTool\TCBP\tcbp.py Bmp2PngRecursive "%P." delete=true
+path6=c:\_FIX\CustomTool\TCBP\
+iconic6=0
+menu6=BMP to PNG (all subdir / optimized)
+
+button7=
+iconic7=0
+
+button8=c:\Python311\python.exe
+cmd8=c:\Python311\python.exe
+param8=c:\_FIX\CustomTool\TCBP\tcbp.py oxipng %UL
+path8=c:\_FIX\CustomTool\TCBP\
+iconic8=0
+menu8=Optimize PNG (oxipng)
+
+button9=c:\Python311\python.exe
+cmd9=c:\Python311\python.exe
+param9=c:\_FIX\CustomTool\TCBP\tcbp.py pngcrush %UL
+path9=c:\_FIX\CustomTool\TCBP\
+iconic9=0
+menu9=Optimize PNG (pngcrush)
+
+button10=
+iconic10=0
+
+button11=c:\Python311\python.exe
+cmd11=c:\Python311\python.exe
+param11=c:\_FIX\CustomTool\TCBP\tcbp.py ResizeImages %UL
+path11=c:\_FIX\CustomTool\TCBP\
+iconic11=0
+menu11=Resize (to same EXT)
+
+button12=c:\Python311\python.exe
+cmd12=c:\Python311\python.exe
+param12=c:\_FIX\CustomTool\TCBP\tcbp.py CropImages %UL
+path12=c:\_FIX\CustomTool\TCBP\
+iconic12=0
+menu12=Crop (to same EXT)
+
+button13=c:\Python311\python.exe
+cmd13=c:\Python311\python.exe
+param13=c:\_FIX\CustomTool\TCBP\tcbp.py RemoveEdges %UL
+path13=c:\_FIX\CustomTool\TCBP\
+iconic13=0
+menu13=Trim (to BMP)
+
+button14=
+iconic14=0
+
+button15=c:\Python311\python.exe
+cmd15=c:\Python311\python.exe
+param15=c:\_FIX\CustomTool\TCBP\tcbp.py Conv2True %UL
+path15=c:\_FIX\CustomTool\TCBP\
+iconic15=0
+menu15=Convert to True Color (to BMP)
+
+button16=c:\Python311\python.exe
+cmd16=c:\Python311\python.exe
+param16=c:\_FIX\CustomTool\TCBP\tcbp.py Conv2Gray %UL
+path16=c:\_FIX\CustomTool\TCBP\
+iconic16=0
+menu16=Convert to Gray Scale (to PNG)
+
+button17=c:\Python311\python.exe
+cmd17=c:\Python311\python.exe
+param17=c:\_FIX\CustomTool\TCBP\tcbp.py InvertOpacity %UL
+path17=c:\_FIX\CustomTool\TCBP\
+iconic17=0
+menu17=Inverse Opacity (to BMP32)
+
+button18=c:\Python311\python.exe
+cmd18=c:\Python311\python.exe
+param18=c:\_FIX\CustomTool\TCBP\tcbp.py AddWatermark %UL watermark="c:\_FIX\Graphic\Conv_ImageMagick\images\fuzzy-magick.png"
+path18=c:\_FIX\CustomTool\TCBP\
+iconic18=0
+menu18=Add Watermark (to JPG)
+
+button19=
+iconic19=0
+
+button20=c:\Python311\python.exe
+cmd20=c:\Python311\python.exe
+param20=c:\_FIX\CustomTool\TCBP\tcbp.py LameEnc_MP3 %UL
+path20=c:\_FIX\CustomTool\TCBP\
+iconic20=0
+menu20=to MP3 (LameEnc) - User select
+
+button21=c:\Python311\python.exe
+cmd21=c:\Python311\python.exe
+param21=c:\_FIX\CustomTool\TCBP\tcbp.py Helix_MP3 %UL
+path21=c:\_FIX\CustomTool\TCBP\
+iconic21=0
+menu21=WAV to MP3 (Helix) - User select
+
+button22=c:\Python311\python.exe
+cmd22=c:\Python311\python.exe
+param22=c:\_FIX\CustomTool\TCBP\tcbp.py Helix_MP3 %UL ch_bitrate=64
+path22=c:\_FIX\CustomTool\TCBP\
+iconic22=0
+menu22=WAV to MP3 (Helix) - 128kbps
+
+button23=c:\Python311\python.exe
+cmd23=c:\Python311\python.exe
+param23=c:\_FIX\CustomTool\TCBP\tcbp.py Helix_MP3 %UL ch_bitrate=96
+path23=c:\_FIX\CustomTool\TCBP\
+iconic23=0
+menu23=WAV to MP3 (Helix) - 192kbps
+
+button24=c:\Python311\python.exe
+cmd24=c:\Python311\python.exe
+param24=c:\_FIX\CustomTool\TCBP\tcbp.py Helix_MP3 %UL ch_bitrate=128
+path24=c:\_FIX\CustomTool\TCBP\
+iconic24=0
+menu24=WAV to MP3 (Helix) - 256kbps
+
+button25=c:\Python311\python.exe
+cmd25=c:\Python311\python.exe
+param25=c:\_FIX\CustomTool\TCBP\tcbp.py Helix_MP3 %UL ch_bitrate=160
+path25=c:\_FIX\CustomTool\TCBP\
+iconic25=0
+menu25=WAV to MP3 (Helix) - 320kbps
+
+button26=c:\Python311\python.exe
+cmd26=c:\Python311\python.exe
+param26=c:\_FIX\CustomTool\TCBP\tcbp.py flac %UL
+path26=c:\_FIX\CustomTool\TCBP\
+iconic26=0
+menu26=FLAC (original)
+
+button27=c:\Python311\python.exe
+cmd27=c:\Python311\python.exe
+param27=c:\_FIX\CustomTool\TCBP\tcbp.py flaccl %UL
+path27=c:\_FIX\CustomTool\TCBP\
+iconic27=0
+menu27=FLAC (FLACCL, GPU)
+
+button28=
+iconic28=0
+
+button29=c:\Python311\python.exe
+cmd29=c:\Python311\python.exe
+param29=c:\_FIX\CustomTool\TCBP\tcbp.py GroupMD5 %UL bom=true chunk_size=64
+path29=c:\_FIX\CustomTool\TCBP\
+iconic29=0
+menu29=Group MD5 hash
+
+button30=c:\Python311\python.exe
+cmd30=c:\Python311\python.exe
+param30=c:\_FIX\CustomTool\TCBP\tcbp.py RemoveBOM %UL backup=false eachline=true
+path30=c:\_FIX\CustomTool\TCBP\
+iconic30=0
+menu30=Remove BOM

@@ -1,13 +1,13 @@
 # TCBP Plugin Authoring Guide
 
-This document is a guide for developers who want to create or maintain plugins
-that run under a TCBP (Total Commander Batch Python) `plugin = "..."` Job. For
-general TCBP usage, see `README_en.md` (Chapter 5) in the parent folder — this
-document focuses on the plugin **author's** perspective.
+This document provides guidance for developers who create or maintain plugins
+executed by a TCBP (Total Commander Batch Python) `plugin = "..."` Job. For
+general TCBP usage, refer to `README_en.md` (Chapter 5) in the parent folder.
+This document is written from the perspective of the plugin author.
 
-> **Requirement:** TCBP runs on Python 3.11 or later (see `README_en.md`). The
-> skeleton code in this document likewise uses 3.10+ syntax such as `str |
-> None` and `list[str]`, so it won't work as-is on an older interpreter.
+> **Requirement:** TCBP requires Python 3.11 or later (see `README_en.md`). The
+> sample code in this document also uses 3.10+ syntax such as `str | None` and
+> `list[str]`, and therefore is not compatible with older Python interpreters.
 
 ## 1. Table of Contents
 
@@ -120,9 +120,9 @@ Returns ExecResult (FileSession) or BatchResult (BatchSession)
 tcbp.py ── tallies success/failure, prints to console/log
 ```
 
-There is no separate plugin discovery/registration mechanism. `plugin =
-"resize"` always maps deterministically to `./plugin/resize.py`; when a Job is
-resolved, TCBP only checks whether that file exists.
+There is no separate plugin discovery or registration mechanism. `plugin =
+"resize"` always resolves deterministically to `./plugin/resize.py`. When a
+Job is resolved, TCBP performs only a file existence check for that target.
 
 ---
 
@@ -150,8 +150,8 @@ def run(session):
     ...
 ```
 
-The values passed to `@plugin(...)` are validated internally as `PluginInfo`
-(a frozen dataclass).
+The values passed to `@plugin(...)` are validated internally and assembled into
+`PluginInfo` (a frozen dataclass).
 
 ```python
 @strict_dataclass(frozen=True)
@@ -166,11 +166,11 @@ class PluginInfo:
     thread_safe: bool = True
 ```
 
-If `session_type` is given a value other than `"file"`/`"batch"`, or any field
-has the wrong type, an exception is raised **immediately at plugin import
-time**, when the decorator is evaluated (see the fail-fast discussion in 5.1)
-— long before the Job actually runs, and even before that, at
-`validate_config.py`'s pre-flight check stage.
+If `session_type` is assigned a value other than `"file"`/`"batch"`, or if any
+field has an invalid type, an exception is raised **immediately at plugin import
+time**, when the decorator is evaluated (see the fail-fast discussion in 5.1).
+This occurs before the Job executes and also before the `validate_config.py`
+pre-flight validation stage completes.
 
 #### `contract_version` — the plugin contract version (required)
 
@@ -235,12 +235,12 @@ class BatchSession:
     def log(self, text: str, slot: int = 0) -> None: ...
 ```
 
-`filelist` is not "the path to the list file" — it is a list of absolute-path
-strings that TCBP has already read from the list file and already confirmed
-exist. A plugin does not need to re-check file existence (though it should
-still handle the ordinary exceptions that can occur if a file disappears
-during actual processing, since existence can't be guaranteed to hold for the
-entire run).
+`filelist` is not the path to the list file itself; it is a list of absolute
+file paths that TCBP has already read from the list and verified to exist.
+A plugin does not need to re-check file existence. However, it should still
+handle ordinary exceptions that may arise if a file disappears during actual
+processing, because file existence cannot be guaranteed for the duration of the
+entire run.
 
 > **Note:** `BatchSession.output` means something different from
 > `FileSession.output`. `FileSession.output` is a fully substituted absolute
@@ -258,8 +258,8 @@ entire run).
 
 ### 3.4 Return Value Contract — `ExecResult` / `BatchResult`
 
-Instead of the implicit rule "no exception means success," plugins report
-success/failure via an **explicit return value**.
+Rather than relying on the implicit rule that "no exception means success,"
+plugins report success or failure through an **explicit return value**.
 
 ```python
 @strict_dataclass(frozen=True)

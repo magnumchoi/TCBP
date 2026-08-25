@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-[ko]
-[플러그인 개요]
+[ko][플러그인 개요]
 이름: remove_bom.py
 버전: v1.0
 타입: TCBP FileSession 플러그인
 목적: 텍스트 파일의 UTF-8 BOM(Byte Order Mark) 제거
 설명: TCBP를 통해 run(session)으로 호출되거나, tcbp 없이 단독 CLI로 파일 1개를 처리할 수 있다.
+독립실행시:
+    python remove_bom.py <input> <output> [backup=true] [eachline=true]
 기타:
 - BOM 이란 UTF-8 인코딩된 텍스트 파일에서, 이 파일이 유니코드 파일임을 알리기 위해
   파일 시작부에 붙는 3바이트 시그니처(0xEF, 0xBB, 0xBF)를 말한다.
@@ -15,17 +16,17 @@
   BOM이 중간에 혼입될 수 있다. 이때 일반 텍스트 에디터로는 확인 및 제거가 불가능하다.
 - backup=true 지정 시 원본을 .bak 확장자로 보관한 뒤 덮어쓴다.
 - BOM이 실제로 없으면 출력 파일을 만들지 않고 원본을 그대로 둔다.
+버전이력:
+- v1.0 : 최초 작성
 
-독립실행시:
-    python remove_bom.py <input> <output> [backup=true] [eachline=true]
-
-[en]
-[Plugin Overview]
+[en][Plugin Overview]
 Name: remove_bom.py
 Version: v1.0
 Type: TCBP FileSession plugin
 Purpose: Remove the UTF-8 BOM (Byte Order Mark) from text files
 Description: Can be called via run(session) through TCBP, or run standalone (without tcbp) on a single file.
+Standalone execution:
+    python remove_bom.py <input> <output> [backup=true] [eachline=true]
 Notes:
 - A BOM is a 3-byte signature (0xEF, 0xBB, 0xBF) placed at the start of a UTF-8-encoded text file to
   mark it as a Unicode file.
@@ -36,9 +37,8 @@ Notes:
   nor remove.
 - When backup=true is set, the original is kept with a .bak extension before being overwritten.
 - If no BOM is actually found, no output file is written and the original is left untouched.
-
-Standalone execution:
-    python remove_bom.py <input> <output> [backup=true] [eachline=true]
+Version history:
+- v1.0 : Initial version.
 """
 import sys
 import shutil

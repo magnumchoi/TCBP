@@ -3,6 +3,7 @@
 [en] Filename Truncation for Screen Display
 """
 import logging
+import re
 import shutil
 import sys
 import threading
@@ -17,6 +18,20 @@ try:
 except ImportError:
     _wcswidth = None
     _wcwidth_char = None
+
+
+# [ko] 파일명/메시지는 신뢰할 수 없는 소스(예: 압축 해제 결과, 네트워크 공유)에서 올 수
+#      있다. ANSI 커서 제어 시퀀스와 함께 그대로 stdout에 쓰이므로, ESC(0x1b) 등 제어
+#      문자를 출력 직전에 제거해 터미널 이스케이프 인젝션/로그 위조를 막는다.
+# [en] Filenames/messages can come from an untrusted source (e.g. archive
+#      extraction, a network share). They're written to stdout alongside our own
+#      ANSI cursor-control sequences, so control characters (ESC 0x1b, etc.) are
+#      stripped right before output to prevent terminal escape injection / log forging.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _strip_control_chars(s: str) -> str:
+    return _CONTROL_CHARS_RE.sub("", s)
 
 
 def _char_width(ch: str) -> int:
@@ -85,6 +100,7 @@ def _truncate_filename(name: str, max_width: int) -> str:
     middle with "...". Width is computed via _display_width, which treats
     fullwidth characters as 2 columns.
     """
+    name = _strip_control_chars(name)
     if _display_width(name) <= max_width:
         return name
     stem = Path(name).stem
@@ -125,6 +141,7 @@ def _truncate_message(text: str, max_width: int) -> str:
     [ko] 긴 메시지를 한 줄 폭에 맞춰 말미를 "..."로 생략한다.
     [en] Truncate the tail of a long message with "..." to fit a single line's width.
     """
+    text = _strip_control_chars(text)
     if _display_width(text) <= max_width:
         return text
     budget = max_width - 3

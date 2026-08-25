@@ -27,6 +27,7 @@ MESSAGES: dict[str, str] = {
 
     # [ko] 플러그인 관련 오류
     # [en] plugin-related error messages
+    "err_plugin_invalid_name": "[ERROR] Plugin name '{name}' contains invalid characters (only letters, digits, '_' and '-' are allowed).",
     "err_plugin_not_found":  "[ERROR] Plugin '{name}' not found: {path}",
     "err_plugin_import_failed": "[ERROR] Failed to import plugin '{name}': {error}",
     "err_plugin_no_run":     "[ERROR] Plugin '{name}' has no run() function.",
@@ -74,6 +75,7 @@ MESSAGES: dict[str, str] = {
     "err_input_mode_expects_directory": "[ERROR] Job '{job}' is declared with input_mode=\"directory\", but the path given is not a directory",
     "err_input_mode_expects_list":      "[ERROR] Job '{job}' has input_mode=\"list\" (the default), but the path given is a directory — set input_mode = \"directory\" in config.toml to accept a folder",
     "warn_tool_not_found":   "Tool path not found",
+    "warn_output_overwrites_input": "output resolves to the same path as input — the original file will be overwritten: {path}",
     "err_on_error_stop_cancel": "on_error=stop: cancelling remaining tasks...",
     "err_exception":         "Exception occurred",
     "err_on_error_stop_abort": "on_error=stop: processing aborted",

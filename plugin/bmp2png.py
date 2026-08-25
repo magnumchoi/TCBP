@@ -1,31 +1,32 @@
 #!/usr/bin/env python3
 """
-[ko]
-[플러그인 개요]
+[ko][플러그인 개요]
 이름: bmp2png.py
 버전: v1.0
 타입: TCBP FileSession 플러그인
 목적: BMP를 최적 압축된 PNG로 변환
 설명: 1단계로 BMP를 PNG로 변환하고, 2단계로 oxipng로 최적화하여 파일 크기를 최소화한다.
      TCBP를 통해 run(session)으로 호출되거나, tcbp 없이 단독 CLI로 파일 1개를 처리할 수 있다
+독립실행시:
+    python bmp2png.py <input> <output> [delete=true] [oxipng_exe=...]
 기타:
 - 최적화를 위해 oxipng.exe 가 필요하다. oxipng.exe가 없으면 최적화 단계는 스킵된다.
 - oxipng.exe는 plugin/oxipng.exe로 번들링한다.
   session.params["oxipng_exe"](=job.defaults를 통한 커스텀 경로 지정, 14장 메커니즘 재사용)가 있으면 그걸 우선.
 - 1단계 BMP→PNG 변환은 OpenCV를 사용하고, 없으면 Pillow로 폴백. 2단계에서 최적화할 것이므로 1단계는 압축율을 낮추고 고속 인코딩
 - 2단계 oxipng 실행(단일 스레드로. 멀티스레드화는 TCBP가 담당.) 최적화 레벨 5사용. 메타데이터는 제거.
+버전이력:
+- v1.0 : 최초 작성
 
-독립실행시:
-    python bmp2png.py <input> <output> [delete=true] [oxipng_exe=...]
-
-[en]
-[Plugin Overview]
+[en][Plugin Overview]
 Name: bmp2png.py
 Version: v1.0
 Type: TCBP FileSession plugin
 Purpose: Convert BMP to an optimally compressed PNG
 Description: Step 1 converts BMP to PNG; step 2 runs oxipng to optimize it and minimize file size.
              Can be called via run(session) through TCBP, or run standalone (without tcbp) on a single file.
+Standalone execution:
+    python bmp2png.py <input> <output> [delete=true] [oxipng_exe=...]
 Notes:
 - oxipng.exe is required for optimization. If oxipng.exe is missing, the optimization step is skipped.
 - oxipng.exe is bundled as plugin/oxipng.exe. If session.params["oxipng_exe"] is set (a custom path
@@ -34,10 +35,8 @@ Notes:
   anyway, step 1 favors low compression and fast encoding.
 - Step 2 runs oxipng (single-threaded — TCBP itself handles multi-threading) at optimization level 5,
   stripping metadata.
-
-Standalone execution:
-    python bmp2png.py <input> <output> [delete=true] [oxipng_exe=...]
-
+Version history:
+- v1.0 : Initial version.
 """
 import sys
 import subprocess

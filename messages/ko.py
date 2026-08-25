@@ -27,6 +27,7 @@ MESSAGES: dict[str, str] = {
 
     # [ko] 플러그인 관련 오류
     # [en] plugin-related error messages
+    "err_plugin_invalid_name": "[오류] 플러그인 이름 '{name}'에 허용되지 않는 문자가 포함되어 있습니다 (영문자, 숫자, '_', '-'만 허용).",
     "err_plugin_not_found":  "[오류] 플러그인 '{name}'을(를) 찾을 수 없습니다: {path}",
     "err_plugin_import_failed": "[오류] 플러그인 '{name}' import 실패: {error}",
     "err_plugin_no_run":     "[오류] 플러그인 '{name}'에 run() 함수가 없습니다.",
@@ -74,6 +75,7 @@ MESSAGES: dict[str, str] = {
     "err_input_mode_expects_directory": "[오류] Job '{job}'는 input_mode=\"directory\"로 선언되었는데, 전달된 경로가 폴더가 아닙니다",
     "err_input_mode_expects_list":      "[오류] Job '{job}'는 input_mode=\"list\"(기본값)인데, 전달된 경로가 폴더입니다 — 폴더를 입력하려면 config.toml에 input_mode = \"directory\"를 설정하세요",
     "warn_tool_not_found":   "Tool 경로를 찾을 수 없습니다",
+    "warn_output_overwrites_input": "output이 input과 같은 경로로 resolve됩니다 — 원본 파일이 덮어써집니다: {path}",
     "err_on_error_stop_cancel": "on_error=stop: 나머지 작업 취소 중...",
     "err_exception":         "예외 발생",
     "err_on_error_stop_abort": "on_error=stop: 처리 중단",

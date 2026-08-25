@@ -5,7 +5,6 @@
 import shutil
 import subprocess
 import tempfile
-import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
@@ -324,6 +323,20 @@ class JobRunner:
 
         self._logger.info(_t("info_job_summary", success=success_count, failed=failed_count, total=total))
 
+    def _warn_if_output_overwrites_input(self, file_path: Path, output_p: Path) -> None:
+        # [ko] validate_config.py의 _check_output_overwrite_risk는 사전 진단용이라
+        #      tcbp.py 실행 시 자동으로 호출되지 않는다 — 사용자가 검증을 건너뛰면
+        #      원본 파일이 조용히 덮어써질 수 있으므로, 실제 실행 경로에서도 최소한의
+        #      경고를 남긴다.
+        # [en] validate_config.py's _check_output_overwrite_risk is a pre-run
+        #      diagnostic and is never called automatically when tcbp.py runs — if a
+        #      user skips validation, the original file could be silently overwritten,
+        #      so leave a minimal warning on the actual execution path too.
+        if self._job.allow_output_overwrite:
+            return
+        if output_p.resolve() == file_path.resolve():
+            self._logger.warning(_t("warn_output_overwrites_input", path=str(output_p)))
+
     def _process_file(
         self,
         ctx_builder: ContextBuilder,
@@ -334,6 +347,7 @@ class JobRunner:
         file_ctx = ctx_builder.build_file_context(file_path, index)
         ctx, raw_ctx, cwd = file_ctx.ctx, file_ctx.raw_ctx, file_ctx.cwd
         output_p = Path(file_ctx.output_path)
+        self._warn_if_output_overwrites_input(file_path, output_p)
         quiet    = manager is not None
 
         if manager:
@@ -352,8 +366,11 @@ class JobRunner:
 
         try:
             if need_temp:
-                tmp_dir = Path(tempfile.gettempdir()) / f"tcbp_{uuid.uuid4().hex[:8]}"
-                tmp_dir.mkdir()
+                # [ko] mkdtemp()는 원자적 생성 + 소유권 강제를 보장해 수동 mkdir()보다
+                #      symlink/TOCTOU 공격에 안전하다.
+                # [en] mkdtemp() guarantees atomic creation + ownership enforcement,
+                #      making it safer against symlink/TOCTOU attacks than a manual mkdir().
+                tmp_dir = Path(tempfile.mkdtemp(prefix="tcbp_"))
                 tmp_in  = tmp_dir / f"in{file_path.suffix}"
                 tmp_out = tmp_dir / f"out{output_p.suffix}"
                 shutil.copy2(str(file_path), str(tmp_in))
@@ -439,6 +456,7 @@ class JobRunner:
         file_ctx = ctx_builder.build_file_context(file_path, index)
         raw_ctx  = file_ctx.raw_ctx
         output_p = Path(file_ctx.output_path)
+        self._warn_if_output_overwrites_input(file_path, output_p)
 
         if manager:
             manager.on_start(index, file_path.name)
