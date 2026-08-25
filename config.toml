@@ -303,6 +303,31 @@ post = [
 # ==============================================================================
 #  AUDIO FORMAT CONVERSION
 # ==============================================================================
+[jobs.LameEnc_MP3]
+desc        = "MP3 conversion using the mp3lame plugin (WAV/FLAC/OGG/AIFF -> MP3)"
+plugin      = "mp3lame"
+output      = "{dir}/{base}.mp3"
+parallel    = true
+max_workers = 6
+params = [
+    { key="bitrate", desc="bitrate", type="int", default=128, preset=[
+        { label="128kbps", value=128 },
+        { label="192kbps", value=192 },
+        { label="256kbps", value=256 },
+        { label="320kbps", value=320 },
+    ] },
+]
+pre = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   MP3 Conversion (mp3lame plugin)" },
+    { msg = "   {bitrate} kbps / Quality=2" },
+    { msg = "-------------------------------------------------------------------------------" },
+]
+post = [
+    { msg = "-------------------------------------------------------------------------------" },
+    { msg = "   Conversion finished." },
+    { msg = "-------------------------------------------------------------------------------" },
+]
 
 [jobs.Helix_MP3]
 desc         = "MP3 conversion using Helix MP3 encoder"

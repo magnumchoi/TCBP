@@ -64,7 +64,7 @@ from core.params   import (prompt_missing_params, parse_params, _coerce_params, 
 from core.config   import ConfigLoader, _require_essentials, _value_matches_type, _default_preset_index, _SCRIPT_DIR
 from core.plugins  import load_plugin, _check_contract_version
 from core.context  import resolve_input_files, enumerate_directory
-from core.logging import setup_logging
+from core.logger import setup_logging
 from core.executor import JobRunner, CommandExecutor, PluginJobExecutor, _make_log_fn
 from core.display  import OutputManager, _truncate_filename
 from core.winapi   import _enable_win_ansi
@@ -110,6 +110,15 @@ def main() -> None:
     _job:    ResolvedJob | None    = None
     test_mode = os.environ.get("TCBP_TEST") == "1"
     try:
+        """
+        ------------------------------------------------------------------------------------------------------------------------
+        [ko] 부트스트랩: CLI 인자 파싱, config 로딩, Job 해석, 플러그인 로딩, 필수값 검증, 로거 초기화
+        [en] Bootstrap: CLI arg parsing, config loading, Job resolution, plugin loading, required-value validation, logger setup
+        ------------------------------------------------------------------------------------------------------------------------
+        """
+
+        # [ko] CLI 인자 파싱, config 로딩, Job 해석
+        # [en] CLI arg parsing, config loading, Job resolution
         args        = parse_args()
         print(f"TCBP (v{__version__})")
         _set_lang(args.lang)
@@ -121,13 +130,15 @@ def main() -> None:
 
         _job        = loader.resolve_job(args.job)
 
-        # [ko] 플러그인은 여기서 1회만 로드한다 (0번 구조적 수정) — _require_essentials()가
-        #      session_type을 미리 알아야 BatchSession의 output 생략(8.3.2)을 판단할 수 있고,
-        #      JobRunner.run() 안에서 다시 로드하는 이중 로드도 피한다.
-        # [en] The plugin is loaded exactly once here (structural fix #0) —
-        #      _require_essentials() needs to know session_type ahead of time to
-        #      decide on BatchSession's output omission (8.3.2), and this also
-        #      avoids a double load inside JobRunner.run().
+        # [ko]
+        # 플러그인은 여기서 1회만 로드한다.
+        # _require_essentials()가 session_type을 미리 알아야 BatchSession의 output 생략(8.3.2)을 판단할 수 있고,
+        # JobRunner.run() 안에서 다시 로드하는 이중 로드도 피한다.
+        #
+        # [en]
+        # The plugin is loaded exactly once here.
+        # _require_essentials() needs to know session_type ahead of time to decide on BatchSession's output omission (8.3.2),
+        # and this also avoids a double load inside JobRunner.run().
         run_fn: Callable | None = None
         plugin_info: PluginInfo | None = None
         if _job.plugin_name:
@@ -147,6 +158,12 @@ def main() -> None:
         if args.dry_run:
             _logger.info(_t("info_dry_run_mode"))
 
+        """
+        ------------------------------------------------------------------------------------------------------------------------
+        [ko] 실행부: 누락된 파라미터를 묻고, 파일 목록을 해석하고, JobRunner로 실제 처리를 돌린다
+        [en] Execution: prompts for missing parameters, resolves the file list, and runs the actual processing via JobRunner
+        ------------------------------------------------------------------------------------------------------------------------
+        """
         needs_prompt = any(p.key and p.key not in user_params for p in _job.params)
         user_params  = prompt_missing_params(_job, user_params)
         if needs_prompt and not _confirm_final_params(_job, user_params):
@@ -158,6 +175,11 @@ def main() -> None:
 
         runner = JobRunner(_job, _logger, args.dry_run, args.strict, run_fn=run_fn, plugin_info=plugin_info)
         runner.run(files, user_params)
+
+    # ------------------------------------------------------------------------------------------------------------------------
+    # [ko] 예외처리부: 로거가 준비됐으면 로그로, 아니면 긴급 로그 파일로 기록하고 콘솔에 출력한 뒤 Enter 대기
+    # [en] Exception handling: logs via the logger if it's ready, otherwise to the emergency log file, then prints to the console and waits for Enter
+    # ------------------------------------------------------------------------------------------------------------------------
 
     except TcbpError as e:
         msg = str(e)

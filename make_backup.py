@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 [ko]
-프로젝트 루트를 tcbp_v{version}.zip으로 백업한다. 버전은 pyproject.toml의
+프로젝트 루트를 TCBP_v{version}.zip으로 백업한다. 버전은 pyproject.toml의
 [project].version에서 읽는다. __pycache__/.git/.egg-info 등 산출물과 이전
 백업 zip은 포함하지 않는다.
 
@@ -9,7 +9,7 @@ Usage:
     python backup.py
 
 [en]
-Backs up the project root into tcbp_v{version}.zip. The version is read from
+Backs up the project root into TCBP_v{version}.zip. The version is read from
 pyproject.toml's [project].version. Build artifacts (__pycache__, .git,
 .egg-info, etc.) and previous backup zips are excluded.
 
@@ -30,7 +30,7 @@ _EXCLUDE_DIR_NAMES = {
     ".venv", "venv", "env", "build", "dist", "htmlcov",
     ".claude", ".vscode", ".idea",
 }
-_EXCLUDE_FILE_PATTERNS = ("*.pyc", "*.pyo", "tcbp_v*.zip", "tcbp_error.log", "*.log")
+_EXCLUDE_FILE_PATTERNS = ("*.pyc", "*.pyo", "TCBP_v*.zip", "tcbp_error.log", "*.log")
 
 
 def _read_version() -> str:
@@ -47,7 +47,7 @@ def _should_skip(rel_path: Path) -> bool:
 
 def main() -> None:
     version  = _read_version()
-    out_path = _ROOT / f"tcbp_v{version}.zip"
+    out_path = _ROOT / f"TCBP_v{version}.zip"
 
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(_ROOT.rglob("*")):

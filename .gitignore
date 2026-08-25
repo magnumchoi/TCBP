@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging / editable install
+*.egg-info/
+build/
+dist/
+*.egg
+
+# Test / cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Logs
+*.log
+logs/
+
+# Backups (backup.py)
+tcbp_v*.zip
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / OS / AI tooling
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+.DS_Store
