@@ -5,5 +5,5 @@ This tool is a Python re-implementation of similar functionality, inspired by TC
 
 상세 설명 언어를 선택해 주세요. / Please choose your language for detail:
 
-* 🇰🇷 [한국어 버전 (Korean)](README_ko.md)
-* 🇺🇸 [English Version](README_en.md)
+* 🇰🇷 [한국어 버전 (Korean)](manual/README_ko.md)
+* 🇺🇸 [English Version](manual/README_en.md)
